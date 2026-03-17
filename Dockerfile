@@ -27,16 +27,16 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# 프로덕션 의존성만 설치 (serve 포함, npx로 실행)
+# 프로덕션 의존성만 설치
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-# 빌드 결과 복사
+# 빌드 결과 복사 (Vite 빌드는 public으로 두어 Next가 /, /assets 서빙)
 COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/client/dist ./client/dist
+COPY --from=builder /app/client/dist ./public
 COPY --from=builder /app/next.config.js ./
 
-EXPOSE 3000 3500
+EXPOSE 3000
 
-# Next(API) 3000, 클라이언트 정적 3500 동시 실행 (npx로 PATH 문제 방지)
-CMD ["sh", "-c", "npx serve client/dist -s -l 3500 & exec npx next start"]
+# 단일 포트: Next가 API(/api) + SPA(/, rewrites로 /index.html) 서빙
+CMD ["npx", "next", "start"]
