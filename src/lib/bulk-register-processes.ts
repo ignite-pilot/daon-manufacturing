@@ -147,7 +147,7 @@ export async function registerProcessesFromFile(
   const errors: string[] = [];
   const workCache = new Map<string, number | null>();
 
-  for (const [processName, processRows] of processGroups) {
+  for (const [processName, processRows] of Array.from(processGroups.entries())) {
     const firstRow = processRows[0];
     let factoryId = firstRow.factoryId ?? defaultFactoryId;
     if (!firstRow.factoryId && firstRow.factoryName) {

@@ -27,9 +27,9 @@ export async function GET(
     if (!Array.isArray(processRows) || !processRows[0]) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    const stepsArr = Array.isArray(steps) ? steps : [];
+    const stepsArr = (Array.isArray(steps) ? steps : []) as Record<string, unknown>[];
     // DB 컬럼명 actual_duration_min 이어도 값은 초 단위. 클라이언트에는 actual_duration_sec 로 전달
-    const stepsForClient = stepsArr.map((s: Record<string, unknown>) => {
+    const stepsForClient = stepsArr.map((s) => {
       const { actual_duration_min, ...rest } = s;
       return { ...rest, actual_duration_sec: actual_duration_min };
     });

@@ -37,7 +37,7 @@ export async function query<T = unknown>(
   const p = await getPool();
   const [rows] =
     params?.length != null && params.length > 0
-      ? await p.execute(sql, params)
+      ? await p.execute(sql, params as (string | number | null | Date | Buffer)[])
       : await p.query(sql);
   return rows as T;
 }
