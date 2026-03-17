@@ -1,0 +1,20 @@
+# 다온 제조 공정 관리 - 로컬 실행
+# (A) 단일 포트: http://localhost:8080 → API + 앱 UI 동일 오리진
+# (B) 포트 분리: API 3000, 앱 UI 3500 → app 서비스만 사용하고 nginx 서비스 제거
+
+services:
+  app:
+    build: .
+    environment:
+      - NODE_ENV=production
+    # AWS 자격 증명: 호스트 ~/.aws 또는 env_file 전달
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    # 단일 포트로 접속 시 app은 3000/3500 노출 불필요 (nginx가 프록시)

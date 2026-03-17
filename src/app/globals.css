@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground: #1a1a1a;
+  --background: #f5f5f5;
+  --border: #e5e7eb;
+  --header-bg: #1e3a5f;
+  --header-active: #2c5282;
+  --sidebar-active-bg: #bee3f8;
+  --sidebar-active-text: #2c5282;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+/* 로그인 페이지: Tailwind 미적용 시 폴백 + 공통 스타일 */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background-color: #f3f4f6;
+}
+.login-page .login-title-wrap {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+.login-page .login-title-wrap h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+  letter-spacing: -0.025em;
+}
+.login-page .login-title-wrap p {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+.login-page .login-card {
+  width: 100%;
+  max-width: 24rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  padding: 1.5rem;
+}
+.login-page .login-card h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+.login-page .login-card label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.25rem;
+}
+.login-page .login-card input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+.login-page .login-card input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+.login-page .login-card .form-row {
+  margin-bottom: 1rem;
+}
+.login-page .login-card .login-btn {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  background-color: #2563eb;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+.login-page .login-card .login-btn:hover {
+  background-color: #1d4ed8;
+}
+.login-page .login-card .login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.login-page .login-card .login-hint {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+.login-page .login-card .error-msg {
+  font-size: 0.875rem;
+  color: #dc2626;
+  background-color: #fef2f2;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* 채팅 열기 버튼: 화면 오른쪽 하단 Floating */
+.chat-layer-wrap-next {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 1100;
+}
+.chat-toggle-btn-next {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--header-bg, #1e3a5f) !important;
+  color: #fff !important;
+  border: none;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.chat-toggle-btn-next:hover {
+  opacity: 0.95;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.25),
+    0 12px 32px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}

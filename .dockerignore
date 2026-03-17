@@ -1,0 +1,32 @@
+# 의존성·빌드 산출물 (이미지에서 다시 설치/빌드)
+node_modules
+.next
+client/dist
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Git·IDE
+.git
+.gitignore
+.cursor
+.vscode
+*.md
+!README.md
+
+# 테스트·문서
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.test.js
+**/*.test.jsx
+coverage
+*.md
+docs
+
+# 기타
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore
