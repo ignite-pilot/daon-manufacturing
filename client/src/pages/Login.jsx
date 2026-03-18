@@ -38,12 +38,14 @@ export default function Login() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data?.error || '이메일 또는 비밀번호를 확인해 주세요.');
+        const msg = data?.error || data?.message || '이메일 또는 비밀번호를 확인해 주세요.';
+        setError(msg);
         return;
       }
       // 로그인 응답에 user가 있으면 바로 설정 (auth/me 호출 실패 시에도 진입 가능)
-      if (data?.user) {
-        setUser(data.user);
+      const userFromRes = data?.user ?? data?.data?.user;
+      if (userFromRes) {
+        setUser(userFromRes);
       } else {
         await fetchMe();
       }

@@ -1,5 +1,5 @@
 # 다온 제조 공정 관리 - Docker 이미지
-# Next(API, 3000) + Vite 클라이언트 빌드 정적 서빙(3500)
+# Next가 API(/api) + SPA(/) 단일 포트 3500에서 서빙
 # 실행 시 AWS 자격 증명·Secrets Manager 접근 필요 (MySQL 등)
 
 # -----------------------------------------------------------------------------
@@ -36,7 +36,7 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/client/dist ./public
 COPY --from=builder /app/next.config.js ./
 
-EXPOSE 3000
+EXPOSE 3500
 
-# 단일 포트: Next가 API(/api) + SPA(/, rewrites로 /index.html) 서빙
-CMD ["npx", "next", "start"]
+# 포트 3500에서 Next가 API(/api) + SPA(/, rewrites로 /index.html) 서빙
+CMD ["npx", "next", "start", "-p", "3500"]

@@ -3,12 +3,12 @@ const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
     return {
-      // 프로덕션: 루트(/) 및 SPA 경로는 Vite 빌드 index.html로 (public은 빌드 시 client/dist 복사)
+      // SPA 폴백: /api, /_next, /assets 제외한 경로만 /index.html로 (API 404 방지)
       beforeFiles: [
-        { source: '/api/:path*', destination: '/api/:path*' },
         { source: '/_next/:path*', destination: '/_next/:path*' },
         { source: '/assets/:path*', destination: '/assets/:path*' },
-        { source: '/:path*', destination: '/index.html' },
+        // /api 로 시작하지 않는 경로만 index.html로 (정규식)
+        { source: '/:path((?!api/).)*', destination: '/index.html' },
       ],
     };
   },
