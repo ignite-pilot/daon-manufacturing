@@ -5,6 +5,7 @@ import { ListPageWrap, TableHeader, Th, ActionCell } from '../components/ListPag
 import LayerPopup from '../components/LayerPopup';
 import PlanForm from '../components/Plans/PlanForm';
 import UploadWizard from '../components/Plans/UploadWizard';
+import AnalyzingModal from '../components/Plans/AnalyzingModal';
 
 const STATUS_MAP = {
   PENDING:   { label: '대기',    cls: 'plan-status-pending' },
@@ -195,34 +196,23 @@ export default function PlanPage() {
   // step 6 에서 AnalyzingModal 이 이 값을 감시하고 analyze_cad 를 호출
   const [analyzingTarget, setAnalyzingTarget] = useState(null);
 
-  // step 5: wizard 완료 콜백
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // wizard 완료 콜백: 목록으로 이동 후 AnalyzingModal 활성화
   const handleWizardAnalyze = useCallback((planId, instructions, format) => {
     goList();
     setAnalyzingTarget({ planId, instructions, format });
   }, [goList]);
 
-  // step 6 구현 전 임시: analyzingTarget 이 생기면 즉시 analyze_cad 호출 후 목록 갱신
-  // step 6 에서 AnalyzingModal 컴포넌트로 교체
-  const [refreshKey, setRefreshKey] = useState(0);
-  useEffect(() => {
-    if (!analyzingTarget) return;
-    const { planId, instructions, format } = analyzingTarget;
-    apiFetch(`/api/plan/${planId}/analyze_cad?format=${format ?? 'dxf'}`, {
-      method: 'POST',
-      body: JSON.stringify({ additional_instructions: instructions }),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const d = await res.json().catch(() => ({}));
-          alert(`분석 실패: ${d?.error || res.status}`);
-        }
-      })
-      .catch((e) => alert(`분석 중 오류: ${e.message}`))
-      .finally(() => {
-        setAnalyzingTarget(null);
-        setRefreshKey((k) => k + 1); // 목록 새로고침
-      });
-  }, [analyzingTarget]);
+  // AnalyzingModal 완료 콜백
+  const handleAnalysisComplete = useCallback(({ success, error }) => {
+    setAnalyzingTarget(null);
+    setRefreshKey((k) => k + 1);
+    if (!success) {
+      // 모달이 언마운트된 후 alert 표시
+      setTimeout(() => alert(`분석 실패: ${error || '알 수 없는 오류'}`), 50);
+    }
+  }, []);
 
   // 도면 뷰어: step 9에서 PlanViewer 컴포넌트로 교체
   if (isView) {
@@ -259,6 +249,14 @@ export default function PlanPage() {
             onCancel={goList}
           />
         </LayerPopup>
+      )}
+
+      {/* 분석 대기 모달 (LayerPopup 위에 렌더) */}
+      {analyzingTarget && (
+        <AnalyzingModal
+          target={analyzingTarget}
+          onComplete={handleAnalysisComplete}
+        />
       )}
     </>
   );
