@@ -79,6 +79,30 @@ export interface ProcessStep {
   description: string | null;
 }
 
+export type PlanAnalysisStatus = 'PENDING' | 'ANALYZING' | 'COMPLETED' | 'FAILED';
+
+export interface Plan {
+  id: number;
+  name: string;
+  version: number;
+  factory_id: number | null;
+  factory_name?: string | null;
+  original_file_name: string;
+  original_file_format: string;
+  original_file_path: string;
+  svg_file_path: string | null;
+  metadata_file_path: string | null;
+  analysis_result_file_path: string | null;
+  analysis_notes_file_path: string | null;
+  additional_instructions: string | null;
+  analysis_status: PlanAnalysisStatus;
+  analysis_error: string | null;
+  deleted_yn: 'Y' | 'N';
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
 export interface ListResponse<T> {
   items: T[];
   total: number;
