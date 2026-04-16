@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/api';
 import { ListPageWrap, TableHeader, Th, ActionCell } from '../components/ListPageWrap';
 import LayerPopup from '../components/LayerPopup';
 import PlanForm from '../components/Plans/PlanForm';
+import UploadWizard from '../components/Plans/UploadWizard';
 
 const STATUS_MAP = {
   PENDING:   { label: '대기',    cls: 'plan-status-pending' },
@@ -20,7 +21,7 @@ function StatusBadge({ status }) {
 // ---------------------------------------------------------------------------
 // 도면 목록 테이블
 // ---------------------------------------------------------------------------
-export function PlanList({ onRefreshSignal }) {
+export function PlanList({ refreshKey }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -55,7 +56,7 @@ export function PlanList({ onRefreshSignal }) {
     setLoading(true);
     fetchList().finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [fetchList, onRefreshSignal]);
+  }, [fetchList, refreshKey]);
 
   // 하위 경로에서 목록으로 돌아올 때 새로고침
   const location = useLocation();
@@ -171,24 +172,57 @@ export function PlanList({ onRefreshSignal }) {
 // ---------------------------------------------------------------------------
 // PlanPage: /plan/* 라우팅 분기
 //   /plan           → 목록
-//   /plan/new       → 목록 + 업로드 팝업 (step 5에서 구현)
+//   /plan/new       → 목록 + 업로드 wizard
 //   /plan/:id/edit  → 목록 + 수정 팝업
 //   /plan/:id       → 도면 뷰어 (step 9에서 구현, 현재 placeholder)
 // ---------------------------------------------------------------------------
 export default function PlanPage() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const pathname = location.pathname;
+  const location  = useLocation();
+  const navigate  = useNavigate();
+  const pathname  = location.pathname;
 
-  const isNew  = pathname === '/plan/new';
-  const editMatch = pathname.match(/^\/plan\/(\d+)\/edit$/);
-  const viewMatch = !isNew && !editMatch && pathname.match(/^\/plan\/(\d+)$/);
+  const isNew      = pathname === '/plan/new';
+  const editMatch  = pathname.match(/^\/plan\/(\d+)\/edit$/);
+  const viewMatch  = !isNew && !editMatch && pathname.match(/^\/plan\/(\d+)$/);
+  const isEdit     = !!editMatch;
+  const isView     = !!viewMatch;
+  const editPlanId = editMatch?.[1];
 
-  const isEdit = !!editMatch;
-  const isView = !!viewMatch;
+  const goList = useCallback(() => navigate('/plan'), [navigate]);
 
-  const planId = editMatch?.[1] || viewMatch?.[1];
-  const goList = () => navigate('/plan');
+  // 업로드 완료 후 분석 대기 상태
+  // { planId, instructions, format } | null
+  // step 6 에서 AnalyzingModal 이 이 값을 감시하고 analyze_cad 를 호출
+  const [analyzingTarget, setAnalyzingTarget] = useState(null);
+
+  // step 5: wizard 완료 콜백
+  const handleWizardAnalyze = useCallback((planId, instructions, format) => {
+    goList();
+    setAnalyzingTarget({ planId, instructions, format });
+  }, [goList]);
+
+  // step 6 구현 전 임시: analyzingTarget 이 생기면 즉시 analyze_cad 호출 후 목록 갱신
+  // step 6 에서 AnalyzingModal 컴포넌트로 교체
+  const [refreshKey, setRefreshKey] = useState(0);
+  useEffect(() => {
+    if (!analyzingTarget) return;
+    const { planId, instructions, format } = analyzingTarget;
+    apiFetch(`/api/plan/${planId}/analyze_cad?format=${format ?? 'dxf'}`, {
+      method: 'POST',
+      body: JSON.stringify({ additional_instructions: instructions }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          alert(`분석 실패: ${d?.error || res.status}`);
+        }
+      })
+      .catch((e) => alert(`분석 중 오류: ${e.message}`))
+      .finally(() => {
+        setAnalyzingTarget(null);
+        setRefreshKey((k) => k + 1); // 목록 새로고침
+      });
+  }, [analyzingTarget]);
 
   // 도면 뷰어: step 9에서 PlanViewer 컴포넌트로 교체
   if (isView) {
@@ -204,25 +238,23 @@ export default function PlanPage() {
 
   return (
     <>
-      <PlanList />
+      <PlanList refreshKey={refreshKey} />
 
-      {/* 도면 업로드 팝업: step 5에서 UploadWizard로 교체 */}
+      {/* 도면 업로드 wizard */}
       {isNew && (
-        <LayerPopup title="도면 업로드" onClose={goList}>
-          <div className="flex flex-col items-center justify-center gap-4 py-8 text-gray-400">
-            <p className="text-sm">업로드 기능을 준비 중입니다.</p>
-            <button type="button" className="btn-outline" onClick={goList}>
-              닫기
-            </button>
-          </div>
+        <LayerPopup title="도면 업로드" onClose={goList} maxWidth={560}>
+          <UploadWizard
+            onAnalyze={handleWizardAnalyze}
+            onCancel={goList}
+          />
         </LayerPopup>
       )}
 
       {/* 도면 수정 팝업 */}
-      {isEdit && planId && (
+      {isEdit && editPlanId && (
         <LayerPopup title="도면 수정" onClose={goList}>
           <PlanForm
-            planId={Number(planId)}
+            planId={Number(editPlanId)}
             onSuccess={goList}
             onCancel={goList}
           />

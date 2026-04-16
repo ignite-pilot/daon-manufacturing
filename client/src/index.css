@@ -1785,3 +1785,45 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .plan-status-analyzing { background: #eff6ff; color: #2563eb; }
 .plan-status-completed { background: #f0fdf4; color: #16a34a; }
 .plan-status-failed    { background: #fef2f2; color: #dc2626; }
+
+/* ── 공간 관리: 업로드 위저드 ── */
+.plan-upload-drop {
+  border: 2px dashed #d1d5db;
+  border-radius: 0.5rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+  user-select: none;
+}
+.plan-upload-drop:hover,
+.plan-upload-drop:focus,
+.plan-upload-drop-over {
+  border-color: #2563eb;
+  background-color: #eff6ff;
+  outline: none;
+}
+.plan-upload-drop-placeholder,
+.plan-upload-drop-selected {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+.plan-upload-icon {
+  font-size: 2rem;
+  line-height: 1;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+/* 공통 spinner (업로드 중 / 분석 중 재사용) */
+.plan-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid #e5e7eb;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: plan-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes plan-spin { to { transform: rotate(360deg); } }
