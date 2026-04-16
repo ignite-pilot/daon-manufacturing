@@ -11,7 +11,10 @@
     "build": "npm run build:client && next build",
     "build:client": "vite build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "infra:up": "docker compose -f docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f docker-compose.dev.yml down",
+    "infra:logs": "docker compose -f docker-compose.dev.yml logs -f"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1009.0",

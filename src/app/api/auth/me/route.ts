@@ -21,6 +21,11 @@ export async function GET(req: NextRequest) {
       return okResponse(null);
     }
 
+    // local profile: ig-member 검증 없이 auth_user 쿠키에서 바로 반환
+    if (process.env.PROFILE === 'local') {
+      return fallbackAuthUser(req);
+    }
+
     let res: Response;
     try {
       res = await fetch(`${IG_MEMBER}/api/users/me`, {

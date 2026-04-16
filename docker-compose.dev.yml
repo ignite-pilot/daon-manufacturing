@@ -1,0 +1,68 @@
+# local profile 인프라 (MySQL 8 + MinIO)
+# 사용법:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml down
+#
+# 접속 정보:
+#   MySQL:  localhost:3306  user=daon  password=daon1234  db=daon_manufacturing
+#   MinIO:  http://localhost:9000 (API)  http://localhost:9001 (Console)
+#           user=minioadmin  password=minioadmin123
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: daon-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: daon_manufacturing
+      MYSQL_USER: daon
+      MYSQL_PASSWORD: daon1234
+    ports:
+      - "3306:3306"
+    volumes:
+      - daon_mysql_data:/var/lib/mysql
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "daon", "-pdaon1234"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: minio/minio
+    container_name: daon-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - daon_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # MinIO 버킷 초기화 (최초 1회)
+  minio-init:
+    image: minio/mc
+    container_name: daon-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+        mc mb --ignore-existing local/daon-mfg-local &&
+        echo '[minio-init] 버킷 daon-mfg-local 준비 완료'
+      "
+    restart: "no"
+
+volumes:
+  daon_mysql_data:
+  daon_minio_data:

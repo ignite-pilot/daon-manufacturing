@@ -22,6 +22,25 @@ export async function POST(req: NextRequest) {
     const emailForApi = trimmedEmail ? trimmedEmail.toLowerCase() : '';
     console.info(LOG_TAG, 'attempt', { email: trimmedEmail.replace(/(.{2}).*@/, '$1***@'), url: IG_MEMBER });
 
+    // local profile: 환경변수 계정으로 인증 (ig-member 호출 생략)
+    if (process.env.PROFILE === 'local') {
+      const localEmail = (process.env.LOCAL_AUTH_EMAIL ?? '').toLowerCase();
+      const localPassword = process.env.LOCAL_AUTH_PASSWORD ?? '';
+      const localName = process.env.LOCAL_AUTH_NAME ?? localEmail;
+      if (emailForApi !== localEmail || password !== localPassword) {
+        console.warn(LOG_TAG, 'local auth failed', { email: emailForApi });
+        return NextResponse.json({ error: '이메일 또는 비밀번호를 확인해 주세요.' }, { status: 401 });
+      }
+      const userForClient = { email: localEmail, name: localName };
+      const fakeToken = `local.${Buffer.from(localEmail).toString('base64')}`;
+      const secure = process.env.NODE_ENV === 'production';
+      console.info(LOG_TAG, 'local auth success', { email: localEmail });
+      const response = NextResponse.json({ ok: true, user: userForClient });
+      response.cookies.set('auth_token', fakeToken, { httpOnly: true, secure, sameSite: 'lax', maxAge: 60 * 60 * 24 * 7, path: '/' });
+      response.cookies.set('auth_user', JSON.stringify(userForClient), { httpOnly: true, secure, sameSite: 'lax', maxAge: 60 * 60 * 24 * 7, path: '/' });
+      return response;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     let res: Response;

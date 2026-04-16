@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
-const BUCKET = 'ignite-pilot-s3-1';
-const PREFIX = 'daon-manufacturing';
 const REGION = process.env.AWS_REGION || 'ap-northeast-2';
+// local profile: STORAGE_ENDPOINT=http://localhost:9000 (MinIO)
+const STORAGE_ENDPOINT = process.env.STORAGE_ENDPOINT;
+const BUCKET = process.env.STORAGE_BUCKET || 'ignite-pilot-s3-1';
+const PREFIX = 'daon-manufacturing';
 
 const ALLOWED_TYPES = new Set([
   'image/jpeg',
@@ -19,7 +21,25 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || 'file';
 }
 
+function getS3Client(): S3Client {
+  if (STORAGE_ENDPOINT) {
+    return new S3Client({
+      region: REGION,
+      endpoint: STORAGE_ENDPOINT,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: process.env.STORAGE_ACCESS_KEY || 'minioadmin',
+        secretAccessKey: process.env.STORAGE_SECRET_KEY || 'minioadmin',
+      },
+    });
+  }
+  return new S3Client({ region: REGION });
+}
+
 function getPublicUrl(key: string): string {
+  if (STORAGE_ENDPOINT) {
+    return `${STORAGE_ENDPOINT}/${BUCKET}/${key}`;
+  }
   return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
 }
 
@@ -47,7 +67,7 @@ export async function POST(req: NextRequest) {
     }
     const key = `${PREFIX}/${subPrefix}/${randomUUID()}-${sanitizeFileName(file.name || 'file')}`;
     const body = await file.arrayBuffer();
-    const client = new S3Client({ region: REGION });
+    const client = getS3Client();
     await client.send(
       new PutObjectCommand({
         Bucket: BUCKET,

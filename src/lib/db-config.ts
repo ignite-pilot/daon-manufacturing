@@ -1,6 +1,7 @@
 /**
- * DB 접속 설정: AWS Secrets Manager "prod/ignite-pilot/mysql-realpilot"만 사용.
- * 환경 변수는 사용하지 않음.
+ * DB 접속 설정.
+ * - local profile (PROFILE=local 또는 DB_HOST 환경변수 존재 시): 환경변수에서 직접 읽음
+ * - default profile: AWS Secrets Manager "prod/ignite-pilot/mysql-realpilot"에서 조회
  */
 import {
   GetSecretValueCommand,
@@ -20,11 +21,26 @@ export interface DbConfig {
 let cached: DbConfig | null = null;
 
 /**
- * AWS Secrets Manager에서 MySQL 접속 정보를 조회해 반환. 한 번 조회한 값은 캐시함.
+ * DB 접속 정보 반환.
+ * - local profile (PROFILE=local 또는 DB_HOST): 환경변수 직접 사용
+ * - default profile: AWS Secrets Manager 조회, 결과 캐시
  */
 export async function getDbConfig(): Promise<DbConfig> {
   if (cached) return cached;
 
+  // local profile: 환경변수 직접 사용 (Docker MySQL)
+  if (process.env.PROFILE === 'local' || process.env.DB_HOST) {
+    cached = {
+      host: process.env.DB_HOST ?? 'localhost',
+      port: Number(process.env.DB_PORT ?? 3306),
+      user: process.env.DB_USER ?? '',
+      password: process.env.DB_PASSWORD ?? '',
+      database: process.env.DB_NAME ?? 'daon_manufacturing',
+    };
+    return cached;
+  }
+
+  // default profile: AWS Secrets Manager
   const client = new SecretsManagerClient({});
   const response = await client.send(
     new GetSecretValueCommand({ SecretId: SECRET_ID })
