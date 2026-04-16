@@ -1771,3 +1771,17 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .login-page-btn:hover:not(:disabled) {
   background: #2d6ad4 !important;
 }
+
+/* ── 공간 관리: 도면 분석 상태 배지 ── */
+.plan-status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.plan-status-pending   { background: #f3f4f6; color: #6b7280; }
+.plan-status-analyzing { background: #eff6ff; color: #2563eb; }
+.plan-status-completed { background: #f0fdf4; color: #16a34a; }
+.plan-status-failed    { background: #fef2f2; color: #dc2626; }

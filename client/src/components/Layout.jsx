@@ -10,7 +10,7 @@ const menuItems = [
   { path: '/works', label: '작업 정보' },
   { path: '/machines', label: '기계 정보' },
   { path: '/parts', label: '부품 정보' },
-  { path: '/spaces', label: '공간 관리 (추후 구현)', disabled: true },
+  { path: '/plan', label: '공간 관리' },
   { path: '/simulations', label: '시뮬레이션 관리 (추후 구현)', disabled: true },
 ];
 
