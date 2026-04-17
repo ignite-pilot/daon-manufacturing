@@ -63,6 +63,7 @@ a:hover { text-decoration: underline; }
 .ml-6 { margin-left: 1.5rem; }
 .mr-2 { margin-right: 0.5rem; }
 .mt-2 { margin-top: 0.5rem; }
+.mt-3 { margin-top: 0.75rem; }
 .mt-4 { margin-top: 1rem; }
 .mt-5 { margin-top: 1.25rem; }
 .mt-6 { margin-top: 1.5rem; }
@@ -1827,6 +1828,101 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   flex-shrink: 0;
 }
 @keyframes plan-spin { to { transform: rotate(360deg); } }
+
+/* PlanViewer — Layout 통합 */
+.plan-viewer-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* PlanViewer 컴포넌트 */
+.plan-viewer-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+}
+.plan-viewer-center {
+  align-items: center;
+  justify-content: center;
+}
+.plan-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1.25rem;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  gap: 1rem;
+  flex-shrink: 0;
+  min-height: 52px;
+}
+.plan-viewer-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+  flex: 1;
+}
+.plan-viewer-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-shrink: 0;
+}
+.plan-viewer-back {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  padding: 0;
+  white-space: nowrap;
+  line-height: 1;
+}
+.plan-viewer-back:hover { text-decoration: underline; }
+.plan-viewer-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plan-viewer-factory {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+.plan-viewer-meta {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+.plan-viewer-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  min-height: 0;
+  display: block;
+}
+.plan-viewer-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f9fafb;
+}
+.plan-viewer-placeholder-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
 
 /* AnalyzingModal */
 .analyzing-overlay {

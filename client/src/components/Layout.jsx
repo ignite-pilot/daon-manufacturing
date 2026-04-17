@@ -93,11 +93,17 @@ export default function Layout() {
         </aside>
 
         {/* 메인: 바깥 연한 회색 배경, 내부 흰 박스 (bnk-mes) */}
-        <main className="flex-1 overflow-auto content-outer main-with-sidebar min-w-0">
-          <div className="content-inner">
+        {/^\/plan\/\d+$/.test(pathname) ? (
+          <main className="flex-1 main-with-sidebar min-w-0 plan-viewer-main">
             <Outlet />
-          </div>
-        </main>
+          </main>
+        ) : (
+          <main className="flex-1 overflow-auto content-outer main-with-sidebar min-w-0">
+            <div className="content-inner">
+              <Outlet />
+            </div>
+          </main>
+        )}
       </div>
 
       <footer className="footer-bnk shrink-0 flex items-center justify-between px-3 md:px-5 footer-responsive">

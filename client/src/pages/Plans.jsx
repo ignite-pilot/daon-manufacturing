@@ -6,6 +6,7 @@ import LayerPopup from '../components/LayerPopup';
 import PlanForm from '../components/Plans/PlanForm';
 import UploadWizard from '../components/Plans/UploadWizard';
 import AnalyzingModal from '../components/Plans/AnalyzingModal';
+import PlanViewer from '../components/Plans/PlanViewer';
 
 const STATUS_MAP = {
   PENDING:   { label: '대기',    cls: 'plan-status-pending' },
@@ -214,16 +215,9 @@ export default function PlanPage() {
     }
   }, []);
 
-  // 도면 뷰어: step 9에서 PlanViewer 컴포넌트로 교체
+  // 도면 뷰어
   if (isView) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-16 text-gray-400">
-        <p className="text-sm">도면 뷰어를 준비 중입니다.</p>
-        <button type="button" className="btn-outline" onClick={goList}>
-          목록으로 돌아가기
-        </button>
-      </div>
-    );
+    return <PlanViewer planId={Number(viewMatch[1])} />;
   }
 
   return (
