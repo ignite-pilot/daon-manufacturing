@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { ListPageWrap, TableHeader, Th, ActionCell } from '../components/ListPageWrap';
@@ -23,6 +23,8 @@ function StatusBadge({ status }) {
 // ---------------------------------------------------------------------------
 // 도면 목록 테이블
 // ---------------------------------------------------------------------------
+const LIST_POLL_INTERVAL_MS = 5000; // ANALYZING 항목 존재 시 폴링 주기
+
 export function PlanList({ refreshKey }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,8 +33,10 @@ export function PlanList({ refreshKey }) {
   const [pageSize, setPageSize] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
   const navigate = useNavigate();
+  const pollTimerRef = useRef(null);
 
-  const fetchList = useCallback(() => {
+  const fetchList = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
     const params = new URLSearchParams();
     params.set('page', String(currentPage));
     params.set('pageSize', String(pageSize));
@@ -50,7 +54,7 @@ export function PlanList({ refreshKey }) {
         setError(null);
       })
       .catch((e) => { setError(e.message); setItems([]); setTotalCount(0); })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   }, [currentPage, pageSize]);
 
   useEffect(() => {
@@ -59,6 +63,17 @@ export function PlanList({ refreshKey }) {
     fetchList().finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [fetchList, refreshKey]);
+
+  // ANALYZING 항목이 있으면 주기적으로 자동 갱신
+  const hasAnalyzing = useMemo(
+    () => items.some((r) => r.analysis_status === 'ANALYZING'),
+    [items]
+  );
+  useEffect(() => {
+    if (!hasAnalyzing) { clearTimeout(pollTimerRef.current); return; }
+    pollTimerRef.current = setTimeout(() => fetchList(true), LIST_POLL_INTERVAL_MS);
+    return () => clearTimeout(pollTimerRef.current);
+  }, [hasAnalyzing, items, fetchList]);
 
   // 하위 경로에서 목록으로 돌아올 때 새로고침
   const location = useLocation();
