@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>8K PlantSim Viewer</title>
+    <title>도면 뷰어</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -26,43 +26,10 @@
             box-shadow: 2px 0 10px rgba(0,0,0,0.5);
         }
 
-        #sidebar-header {
-            padding: 28px;
-            background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%);
-            border-bottom: 3px solid #FFD700;
-        }
 
-        #sidebar-header h1 {
-            font-size: 24px;
-            margin-bottom: 10px;
-            color: #FFD700;
-            font-weight: 600;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-        }
 
-        #sidebar-header .subtitle {
-            font-size: 15px;
-            color: #999;
-            margin-bottom: 14px;
-        }
 
-        .info-badge {
-            display: inline-block;
-            padding: 7px 14px;
-            background: #333;
-            border-radius: 5px;
-            font-size: 12px;
-            margin-right: 10px;
-            color: #999;
-            border: 1px solid #444;
-            margin-top: 4px;
-        }
 
-        .info-badge.highlight {
-            background: #2a4a2a;
-            color: #4CAF50;
-            border-color: #4CAF50;
-        }
 
         #tabs {
             display: flex;
@@ -203,15 +170,7 @@
             gap: 16px;
         }
 
-        .section-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #FFD700;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 2px solid #333;
-        }
-
+        
         .category-item {
             display: flex;
             align-items: center;
@@ -470,16 +429,6 @@
 </head>
 <body>
     <div id="sidebar">
-        <div id="sidebar-header">
-            <h1>Layout preview for PlantSim plot</h1>
-            <p class="subtitle">8K PlantSim viewer</p>
-            <div>
-                <span class="info-badge highlight">8K Resolution</span>
-                <span class="info-badge" id="entity-count">14011 Entities</span>
-                <span class="info-badge" id="annotation-count">259 Annotations</span>
-            </div>
-        </div>
-
         <div id="tabs">
             <button class="tab active" data-tab="categories">
                 분류
@@ -498,8 +447,7 @@
         <div id="sidebar-content">
             <!-- Categories Tab -->
             <div class="tab-panel active" id="categories-panel">
-                <div class="section-title">PlantSim 분류</div>
-
+            
                 <div class="filter-controls">
                     <button class="filter-button active" data-category="all">All</button>
                     <button class="filter-button" data-category="STATION" style="border-left: 3px solid #FF9800">STATION (23)</button>
@@ -526,8 +474,7 @@
 
             <!-- Legends Tab -->
             <div class="tab-panel" id="legend-panel">
-                <div class="section-title">색상 구분</div>
-                <div class="legend-item"><div class="legend-color" style="background: #FFFF00;"></div><div class="legend-label">Wall (Yellow) (13138)</div></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #FFFF00;"></div><div class="legend-label">Wall (Yellow) (13138)</div></div>
                 <div class="legend-item"><div class="legend-color" style="background: #FFFFFF;"></div><div class="legend-label">Assembly Line (White) (121)</div></div>
                 <div class="legend-item"><div class="legend-color" style="background: #FF6600;"></div><div class="legend-label">IK (Orange) (160)</div></div>
                 <div class="legend-item"><div class="legend-color" style="background: #00FF00;"></div><div class="legend-label">RG3 (Green) (226)</div></div>
@@ -540,8 +487,7 @@
 
             <!-- Stats Tab -->
             <div class="tab-panel" id="stats-panel">
-                <div class="section-title">도면 통계</div>
-                <div id="stats-container"></div>
+                            <div id="stats-container"></div>
             </div>
         </div>
     </div>
