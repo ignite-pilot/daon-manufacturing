@@ -1501,7 +1501,7 @@
         let activeCategory = "all";
 
         // ---- DOM References ----
-        const svgDoc = document.getElementById("svg-document");
+        let svgDoc = document.getElementById("svg-document");
         const svgContainer = document.getElementById("svg-container");
         const zoomLevel = document.getElementById("zoom-level");
 
@@ -1512,7 +1512,7 @@
             // Populate stats
             const statsContainer = document.getElementById("stats-container");
             if (statsContainer) {
-                statsContainer.innerHTML = `<div class="stat-item"><div class="stat-label">Total Entities</div><div class="stat-value">14011</div></div><div class="stat-item"><div class="stat-label">Skipped</div><div class="stat-value">0</div></div><div class="stat-item"><div class="stat-label">Stations</div><div class="stat-value">23</div></div><div class="stat-item"><div class="stat-label">Conveyors</div><div class="stat-value">8</div></div><div class="stat-item"><div class="stat-label">Buffers</div><div class="stat-value">493</div></div><div class="stat-item"><div class="stat-label">Footpaths</div><div class="stat-value">1</div></div><div class="stat-item"><div class="stat-label">LINE</div><div class="stat-value">12627</div></div><div class="stat-item"><div class="stat-label">LWPOLYLINE</div><div class="stat-value">497</div></div><div class="stat-item"><div class="stat-label">INSERT</div><div class="stat-value">407</div></div><div class="stat-item"><div class="stat-label">TEXT</div><div class="stat-value">259</div></div><div class="stat-item"><div class="stat-label">CIRCLE</div><div class="stat-value">150</div></div><div class="stat-item"><div class="stat-label">HATCH</div><div class="stat-value">61</div></div><div class="stat-item"><div class="stat-label">DIMENSION</div><div class="stat-value">10</div></div>`;
+                statsContainer.innerHTML = svgMetadata.statsHtml || `<div class="stat-item"><div class="stat-label">Total Entities</div><div class="stat-value">14011</div></div><div class="stat-item"><div class="stat-label">Skipped</div><div class="stat-value">0</div></div><div class="stat-item"><div class="stat-label">Stations</div><div class="stat-value">23</div></div><div class="stat-item"><div class="stat-label">Conveyors</div><div class="stat-value">8</div></div><div class="stat-item"><div class="stat-label">Buffers</div><div class="stat-value">493</div></div><div class="stat-item"><div class="stat-label">Footpaths</div><div class="stat-value">1</div></div><div class="stat-item"><div class="stat-label">LINE</div><div class="stat-value">12627</div></div><div class="stat-item"><div class="stat-label">LWPOLYLINE</div><div class="stat-value">497</div></div><div class="stat-item"><div class="stat-label">INSERT</div><div class="stat-value">407</div></div><div class="stat-item"><div class="stat-label">TEXT</div><div class="stat-value">259</div></div><div class="stat-item"><div class="stat-label">CIRCLE</div><div class="stat-value">150</div></div><div class="stat-item"><div class="stat-label">HATCH</div><div class="stat-value">61</div></div><div class="stat-item"><div class="stat-label">DIMENSION</div><div class="stat-value">10</div></div>`;
             }
 
             // Populate annotations list
@@ -1773,6 +1773,7 @@
         }
 
         // Initialize when DOM is ready
+        // SVG와 메타데이터는 서버(/api/plan/:id/viewer)에서 주입되어 전달됨
         if (document.readyState === "loading") {
             document.addEventListener("DOMContentLoaded", init);
         } else {

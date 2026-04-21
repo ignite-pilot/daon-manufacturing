@@ -9,7 +9,7 @@ const STATUS_MAP = {
   FAILED:    { label: '실패',    cls: 'plan-status-failed' },
 };
 
-const POLL_INTERVAL_MS = 5000; // ANALYZING 상태 폴링 주기
+const POLL_INTERVAL_MS = 5000;
 
 function StatusBadge({ status }) {
   const s = STATUS_MAP[status] || { label: status || '-', cls: '' };
@@ -19,30 +19,32 @@ function StatusBadge({ status }) {
 /**
  * 도면 뷰어 페이지
  *
- * - COMPLETED 상태 도면: plan_viewer/viewer.html 을 iframe 으로 embed
- * - ANALYZING 상태: 5초 폴링으로 완료 감지 → 자동 전환
- * - 재분석 버튼: COMPLETED / FAILED / PENDING 상태에서 재분석 실행 가능
+ * iframe src = /api/plan/:id/viewer
+ *   → Next.js 가 MinIO에서 SVG·메타데이터를 fetch하여 viewer.html 에 주입 후 반환
+ *   → URL 파라미터 불필요. CORS 문제 없음.
+ *   → MinIO 미가동 / stub 경로인 경우 내장 샘플 데이터로 폴백
  *
- * @param {{ planId: number }} props
+ * 상태별 동작:
+ *   COMPLETED → iframe 표시
+ *   ANALYZING → 5초 폴링 → 완료 시 자동 전환
+ *   PENDING   → 분석 시작 버튼
+ *   FAILED    → 에러 메시지 + 재분석 버튼
  */
 export default function PlanViewer({ planId }) {
-  const [plan,       setPlan]       = useState(null);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
+  const [plan,        setPlan]        = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
   const [reanalyzing, setReanalyzing] = useState(false);
-  const navigate = useNavigate();
+  const navigate     = useNavigate();
   const pollTimerRef = useRef(null);
 
-  // ── 도면 정보 로드 ───────────────────────────────────────
+  // ── 도면 정보 로드 ─────────────────────────────────────────────
   const loadPlan = useCallback((silent = false) => {
     if (!silent) setLoading(true);
     return apiFetch(`/api/plan/${planId}`)
       .then(async (res) => {
         const data = await res.json().catch(() => null);
-        if (!res.ok || !data) {
-          setError(data?.error || `HTTP ${res.status}`);
-          return null;
-        }
+        if (!res.ok || !data) { setError(data?.error || `HTTP ${res.status}`); return null; }
         setError(null);
         setPlan(data);
         return data;
@@ -51,28 +53,24 @@ export default function PlanViewer({ planId }) {
       .finally(() => { if (!silent) setLoading(false); });
   }, [planId]);
 
-  useEffect(() => {
-    loadPlan();
-  }, [loadPlan]);
+  useEffect(() => { loadPlan(); }, [loadPlan]);
 
-  // ── ANALYZING 상태 폴링 ──────────────────────────────────
+  // ── ANALYZING 상태 폴링 ────────────────────────────────────────
   useEffect(() => {
     if (plan?.analysis_status !== 'ANALYZING') {
       clearTimeout(pollTimerRef.current);
       return;
     }
-
-    pollTimerRef.current = setTimeout(async () => {
-      await loadPlan(true); // silent: 로딩 스피너 없이 갱신
-    }, POLL_INTERVAL_MS);
-
+    pollTimerRef.current = setTimeout(() => loadPlan(true), POLL_INTERVAL_MS);
     return () => clearTimeout(pollTimerRef.current);
   }, [plan, loadPlan]);
 
-  // ── 재분석 실행 ──────────────────────────────────────────
+  // ── 재분석 실행 ────────────────────────────────────────────────
   const handleReanalyze = useCallback(async () => {
     if (!plan) return;
-    if (!window.confirm(`"${plan.name}" 도면을 재분석하시겠습니까?\n기존 분석 결과가 새 결과로 교체됩니다.`)) return;
+    if (!window.confirm(
+      `"${plan.name}" 도면을 재분석하시겠습니까?\n기존 분석 결과가 새 결과로 교체됩니다.`
+    )) return;
 
     setReanalyzing(true);
     try {
@@ -81,11 +79,7 @@ export default function PlanViewer({ planId }) {
         { method: 'POST', body: JSON.stringify({ additional_instructions: plan.additional_instructions ?? null }) }
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(`재분석 시작 실패: ${data?.error || `HTTP ${res.status}`}`);
-        return;
-      }
-      // 분석 시작됨 → 상태 업데이트 후 폴링이 자동 진행
+      if (!res.ok) { alert(`재분석 실패: ${data?.error || `HTTP ${res.status}`}`); return; }
       setPlan(data);
     } catch (e) {
       alert(`재분석 오류: ${e.message || '알 수 없는 오류'}`);
@@ -97,7 +91,7 @@ export default function PlanViewer({ planId }) {
   const goList = useCallback(() => navigate('/plan'), [navigate]);
   const goEdit = useCallback(() => navigate(`/plan/${planId}/edit`), [navigate, planId]);
 
-  // ── 렌더 ────────────────────────────────────────────────
+  // ── 렌더 ─────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="plan-viewer-wrap plan-viewer-center">
@@ -106,7 +100,6 @@ export default function PlanViewer({ planId }) {
       </div>
     );
   }
-
   if (error || !plan) {
     return (
       <div className="plan-viewer-wrap plan-viewer-center">
@@ -116,9 +109,9 @@ export default function PlanViewer({ planId }) {
     );
   }
 
-  const isCompleted = plan.analysis_status === 'COMPLETED';
-  const isAnalyzing = plan.analysis_status === 'ANALYZING';
-  const isFailed    = plan.analysis_status === 'FAILED';
+  const isCompleted  = plan.analysis_status === 'COMPLETED';
+  const isAnalyzing  = plan.analysis_status === 'ANALYZING';
+  const isFailed     = plan.analysis_status === 'FAILED';
   const canReanalyze = !isAnalyzing && !reanalyzing;
 
   return (
@@ -126,47 +119,27 @@ export default function PlanViewer({ planId }) {
       {/* 상단 헤더 */}
       <div className="plan-viewer-header">
         <div className="plan-viewer-header-left">
-          <button type="button" className="plan-viewer-back" onClick={goList}>
-            ← 목록
-          </button>
+          <button type="button" className="plan-viewer-back" onClick={goList}>← 목록</button>
           <h2 className="plan-viewer-title">{plan.name}</h2>
-          {plan.factory_name && (
-            <span className="plan-viewer-factory">{plan.factory_name}</span>
-          )}
+          {plan.factory_name && <span className="plan-viewer-factory">{plan.factory_name}</span>}
           <StatusBadge status={plan.analysis_status} />
-          {isAnalyzing && (
-            <span className="plan-viewer-polling-hint">자동 갱신 중</span>
-          )}
+          {isAnalyzing && <span className="plan-viewer-polling-hint">자동 갱신 중</span>}
         </div>
         <div className="plan-viewer-header-right">
           <span className="plan-viewer-meta">v{plan.version}</span>
           {plan.updated_at && (
-            <span className="plan-viewer-meta hide-on-mobile">
-              {String(plan.updated_at).slice(0, 10)}
-            </span>
+            <span className="plan-viewer-meta hide-on-mobile">{String(plan.updated_at).slice(0, 10)}</span>
           )}
           {plan.updated_by && (
             <span className="plan-viewer-meta hide-on-mobile">{plan.updated_by}</span>
           )}
           {canReanalyze && (
-            <button
-              type="button"
-              className="btn-outline"
-              style={{ fontSize: '0.8125rem' }}
-              onClick={handleReanalyze}
-            >
+            <button type="button" className="btn-outline" style={{ fontSize: '0.8125rem' }} onClick={handleReanalyze}>
               재분석
             </button>
           )}
-          {reanalyzing && (
-            <span className="plan-viewer-meta">재분석 시작 중...</span>
-          )}
-          <button
-            type="button"
-            className="btn-outline"
-            style={{ fontSize: '0.8125rem' }}
-            onClick={goEdit}
-          >
+          {reanalyzing && <span className="plan-viewer-meta">재분석 시작 중...</span>}
+          <button type="button" className="btn-outline" style={{ fontSize: '0.8125rem' }} onClick={goEdit}>
             수정
           </button>
         </div>
@@ -175,8 +148,9 @@ export default function PlanViewer({ planId }) {
       {/* 뷰어 / 상태 영역 */}
       {isCompleted ? (
         <iframe
+          key={planId}
           className="plan-viewer-iframe"
-          src="/plan_viewer/viewer.html"
+          src={`/api/plan/${planId}/viewer`}
           title="도면 뷰어"
           allowFullScreen
         />
@@ -187,20 +161,15 @@ export default function PlanViewer({ planId }) {
               <>
                 <div className="plan-spinner" />
                 <p className="text-sm text-gray-600 mt-2">도면 분석 중입니다...</p>
-                <p className="text-xs text-gray-400">
-                  분석이 완료되면 뷰어가 자동으로 표시됩니다.
-                </p>
+                <p className="text-xs text-gray-400">분석이 완료되면 뷰어가 자동으로 표시됩니다.</p>
               </>
             )}
             {!isAnalyzing && !isFailed && (
               <>
                 <p className="text-sm text-gray-500">도면 분석이 시작되지 않았습니다.</p>
                 <button
-                  type="button"
-                  className="btn-primary mt-4"
-                  style={{ fontSize: '0.875rem' }}
-                  onClick={handleReanalyze}
-                  disabled={reanalyzing}
+                  type="button" className="btn-primary mt-4" style={{ fontSize: '0.875rem' }}
+                  onClick={handleReanalyze} disabled={reanalyzing}
                 >
                   분석 시작
                 </button>
@@ -210,16 +179,11 @@ export default function PlanViewer({ planId }) {
               <>
                 <p className="text-sm text-red-500">도면 분석에 실패했습니다.</p>
                 {plan.analysis_error && (
-                  <p className="text-xs text-gray-400 mt-1 plan-viewer-error-detail">
-                    {plan.analysis_error}
-                  </p>
+                  <p className="plan-viewer-error-detail mt-1">{plan.analysis_error}</p>
                 )}
                 <button
-                  type="button"
-                  className="btn-primary mt-4"
-                  style={{ fontSize: '0.875rem' }}
-                  onClick={handleReanalyze}
-                  disabled={reanalyzing}
+                  type="button" className="btn-primary mt-4" style={{ fontSize: '0.875rem' }}
+                  onClick={handleReanalyze} disabled={reanalyzing}
                 >
                   재분석
                 </button>
