@@ -123,9 +123,9 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     }
     const plan = rows[0];
 
-    // 2. viewer.html 템플릿 읽기
+    // 2. viewer.html 템플릿 읽기 (CRLF → LF 정규화: Windows 환경에서 마커 탐색 실패 방지)
     const templatePath = path.join(process.cwd(), 'client/public/plan_viewer/viewer.html');
-    let html = readFileSync(templatePath, 'utf-8');
+    let html = readFileSync(templatePath, 'utf-8').replace(/\r\n/g, '\n');
 
     // 3. MinIO에서 SVG / 메타데이터 병렬 fetch
     //    (COMPLETED 상태가 아니거나 파일이 없으면 null → 내장 샘플 데이터 폴백)
