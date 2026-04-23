@@ -26,6 +26,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV PYTHON_EXECUTABLE=python3
+
+# Python + ezdxf (DXF 분석 스크립트 실행 환경)
+RUN apk add --no-cache python3 py3-pip \
+ && pip3 install --no-cache-dir --break-system-packages ezdxf
 
 # 프로덕션 의존성만 설치
 COPY package.json package-lock.json* ./
@@ -35,6 +40,9 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/client/dist ./public
 COPY --from=builder /app/next.config.js ./
+
+# DXF 분석 스크립트
+COPY scripts ./scripts
 
 EXPOSE 3500
 
