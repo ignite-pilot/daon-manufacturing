@@ -97,6 +97,10 @@ export default function Layout() {
           <main className="flex-1 main-with-sidebar min-w-0 plan-viewer-main">
             <Outlet />
           </main>
+        ) : /^\/processes\/(new|\d+\/edit)$/.test(pathname) ? (
+          <main className="flex-1 main-with-sidebar min-w-0 proc-split-main">
+            <Outlet />
+          </main>
         ) : (
           <main className="flex-1 overflow-auto content-outer main-with-sidebar min-w-0">
             <div className="content-inner">

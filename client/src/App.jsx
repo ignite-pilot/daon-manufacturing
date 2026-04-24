@@ -5,9 +5,7 @@ import Login from './pages/Login';
 import { FactoryList } from './pages/Factories';
 import FactoryForm from './components/Factories/FactoryForm';
 import FactoryDetailView from './components/Factories/FactoryDetailView';
-import { ProcessList } from './pages/Processes';
-import ProcessForm from './components/Processes/ProcessForm';
-import ProcessDetailView from './components/ProcessDetailView';
+import ProcessesPage from './pages/Processes';
 import { WorkList } from './pages/Works';
 import WorkForm from './components/Works/WorkForm';
 import WorkDetailView from './components/WorkDetailView';
@@ -40,21 +38,7 @@ export default function App() {
             />
           }
         />
-        <Route
-          path="processes/*"
-          element={
-            <ListWithLayerPopup
-              basePath="processes"
-              ListComponent={ProcessList}
-              FormComponent={ProcessForm}
-              DetailComponent={ProcessDetailView}
-              titleAdd="공정 등록"
-              titleView="공정 보기"
-              titleEdit="공정 수정"
-              popupMaxWidth={1100}
-            />
-          }
-        />
+        <Route path="processes/*" element={<ProcessesPage />} />
         <Route
           path="works/*"
           element={

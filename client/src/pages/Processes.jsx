@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
+import ProcessForm from '../components/Processes/ProcessForm';
 import { ListPageWrap, TableHeader, Th, ActionCell } from '../components/ListPageWrap';
 
 /**
@@ -266,4 +267,30 @@ export function ProcessList() {
   );
 }
 
-export default ProcessList;
+export default function ProcessesPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pathname = location.pathname;
+
+  const isNew = pathname === '/processes/new';
+  const editMatch = pathname.match(/^\/processes\/(\d+)\/edit$/);
+  const isEdit = !!editMatch;
+  const isFormMode = isNew || isEdit;
+  const editId = editMatch?.[1];
+
+  const goList = useCallback(() => navigate('/processes'), [navigate]);
+
+  if (!isFormMode) {
+    return <ProcessList />;
+  }
+
+  return (
+    <div className="proc-form-full">
+      {isNew ? (
+        <ProcessForm topBar onSuccess={goList} onCancel={goList} />
+      ) : (
+        <ProcessForm topBar processId={Number(editId)} onSuccess={goList} onCancel={goList} />
+      )}
+    </div>
+  );
+}

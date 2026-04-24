@@ -1836,6 +1836,26 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   overflow: hidden;
 }
 
+/* 공정 등록/수정 split layout */
+.proc-split-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f0f2f5;
+  padding: 1rem;
+}
+/* 전체 폭 공정 폼 패널 */
+.proc-form-full {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
 /* PlanViewer 컴포넌트 */
 .plan-viewer-wrap {
   display: flex;
@@ -1994,4 +2014,427 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   padding: 0.5rem 0.75rem;
   margin: 0;
   line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ProcessForm 2-panel layout  (pf-* prefix)
+═══════════════════════════════════════════════════════════ */
+
+/* 최상위 래퍼 */
+.pf-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* form 요소: 상단 바 + 두 패널 행 */
+.pf-form-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 상단 액션 바 */
+.pf-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+  flex-shrink: 0;
+}
+.pf-back-btn {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pf-back-btn:hover { color: #374151; text-decoration: underline; }
+.pf-top-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  flex: 1;
+}
+.pf-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 두 패널을 가로로 배치하는 래퍼 */
+.pf-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── 왼쪽 패널 ─────────────────────────────────────────── */
+.pf-left {
+  width: 390px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 16px;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.pf-form-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 4px;
+}
+
+.pf-back-link {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pf-back-link:hover { color: #374151; text-decoration: none; }
+
+/* 폼 필드 */
+.pf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pf-field-grow {
+  flex: 1;
+  min-height: 0;
+}
+.pf-field-grow .pf-textarea {
+  flex: 1;
+  min-height: 64px;
+}
+
+.pf-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #374151;
+}
+.pf-required { color: #ef4444; margin-left: 2px; }
+.pf-optional { color: #9ca3af; font-size: 0.75rem; margin-left: 2px; }
+
+.pf-select,
+.pf-input {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+  width: 100%;
+}
+.pf-select:focus,
+.pf-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+.pf-textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+}
+.pf-textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+
+/* 왼쪽 하단: 메타 + 버튼 */
+.pf-left-bottom {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pf-meta {
+  border-top: 1px solid #f3f4f6;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pf-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+.pf-meta-label { color: #9ca3af; }
+.pf-meta-value { color: #6b7280; }
+
+.pf-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.pf-btn-primary {
+  padding: 8px 18px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pf-btn-primary:hover { background: #1d4ed8; }
+.pf-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.pf-btn-secondary {
+  padding: 8px 18px;
+  background: #fff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.pf-btn-secondary:hover { background: #f9fafb; text-decoration: none; }
+
+/* ── 오른쪽 패널 ────────────────────────────────────────── */
+.pf-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f3f4f6;
+  overflow: hidden;
+}
+
+.pf-right-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.pf-right-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pf-right-product {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+.pf-right-time {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.pf-btn-add-stage {
+  padding: 6px 14px;
+  font-size: 0.8125rem;
+  border: 1px solid #2563eb;
+  color: #2563eb;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pf-btn-add-stage:hover { background: #eff6ff; }
+
+/* 카드 스크롤 영역 */
+.pf-cards-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+/* ── 단계 카드 ──────────────────────────────────────────── */
+.pf-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  min-width: 290px;
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.pf-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pf-card-header-label {
+  font-size: 0.6875rem;
+  color: #9ca3af;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pf-card-header-btns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pf-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0;
+  flex-shrink: 0;
+}
+.pf-icon-btn:hover { background: #f3f4f6; color: #374151; }
+
+.pf-card-name {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1e293b;
+  outline: none;
+  background: #f9fafb;
+}
+.pf-card-name:focus { border-color: #2563eb; background: #fff; }
+
+.pf-card-time {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.pf-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #f3f4f6;
+  margin-top: 2px;
+}
+.pf-text-btn {
+  font-size: 0.75rem;
+  color: #2563eb;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 500;
+}
+.pf-text-btn:hover { text-decoration: underline; }
+.pf-card-action-sep { color: #d1d5db; font-size: 0.75rem; }
+
+/* ── 작업 목록 ──────────────────────────────────────────── */
+.pf-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.pf-work-item {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pf-work-name {
+  font-size: 0.75rem;
+  color: #374151;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pf-work-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pf-work-time-input {
+  width: 52px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+  text-align: right;
+  outline: none;
+}
+.pf-work-time-input:focus { border-color: #2563eb; }
+.pf-work-time-unit {
+  font-size: 0.6875rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* ── 기타 ───────────────────────────────────────────────── */
+.pf-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+.pf-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  text-align: center;
+  width: 100%;
 }
