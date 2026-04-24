@@ -87,6 +87,8 @@ export interface Plan {
   version: number;
   factory_id: number | null;
   factory_name?: string | null;
+  building: string;
+  floor: string;
   original_file_name: string;
   original_file_format: string;
   original_file_path: string;

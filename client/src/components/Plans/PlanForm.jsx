@@ -9,7 +9,7 @@ export default function PlanForm({ planId, onSuccess, onCancel }) {
   const isEdit = planId != null;
 
   const [factories, setFactories] = useState([]);
-  const [form, setForm] = useState({ name: '', factory_id: '' });
+  const [form, setForm] = useState({ name: '', factory_id: '', building: '', floor: '1' });
   const [meta, setMeta] = useState({ updated_at: null, updated_by: null, version: null });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,8 +37,10 @@ export default function PlanForm({ planId, onSuccess, onCancel }) {
       .then((d) => {
         if (cancelled || !d) return;
         setForm({
-          name: String(d.name ?? ''),
+          name:       String(d.name     ?? ''),
           factory_id: d.factory_id != null ? String(d.factory_id) : '',
+          building:   String(d.building ?? ''),
+          floor:      String(d.floor    ?? '1'),
         });
         setMeta({
           updated_at: d.updated_at || null,
@@ -60,14 +62,20 @@ export default function PlanForm({ planId, onSuccess, onCancel }) {
     e.preventDefault();
     setError(null);
 
-    const name = form.name.trim();
-    if (!name) { setError('도면 이름은 필수입니다.'); return; }
+    const name     = form.name.trim();
+    const building = form.building.trim();
+    const floor    = form.floor.trim();
+    if (!name)     { setError('도면 이름은 필수입니다.'); return; }
+    if (!building) { setError('건물 이름은 필수입니다.'); return; }
+    if (!floor)    { setError('층은 필수입니다.'); return; }
 
     setSaving(true);
     try {
       const body = {
         name,
         factory_id: form.factory_id ? Number(form.factory_id) : null,
+        building,
+        floor,
       };
       const res = await apiFetch(`/api/plan/${planId}`, {
         method: 'PUT',
@@ -112,6 +120,38 @@ export default function PlanForm({ planId, onSuccess, onCancel }) {
           placeholder="도면 이름을 입력하세요"
           required
         />
+      </div>
+
+      {/* 건물 / 층 */}
+      <div className="flex gap-3">
+        <div className="flex flex-col gap-1 flex-1">
+          <label className="text-sm font-medium text-gray-700">
+            건물 <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            name="building"
+            value={form.building}
+            onChange={handleChange}
+            className="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+            placeholder="예) A동"
+            required
+          />
+        </div>
+        <div className="flex flex-col gap-1" style={{ width: '6rem' }}>
+          <label className="text-sm font-medium text-gray-700">
+            층 <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            name="floor"
+            value={form.floor}
+            onChange={handleChange}
+            className="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+            placeholder="예) 1"
+            required
+          />
+        </div>
       </div>
 
       {/* 연관 공장 */}

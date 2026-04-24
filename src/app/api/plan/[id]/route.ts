@@ -33,10 +33,19 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, factory_id } = body;
+    const { name, factory_id, building, floor } = body;
+
+    const buildingVal = String(building ?? '').trim();
+    const floorVal    = String(floor    ?? '').trim();
 
     if (!name) {
       return NextResponse.json({ error: 'name 은 필수입니다.' }, { status: 400 });
+    }
+    if (!buildingVal) {
+      return NextResponse.json({ error: '건물 이름은 필수입니다.' }, { status: 400 });
+    }
+    if (!floorVal) {
+      return NextResponse.json({ error: '층은 필수입니다.' }, { status: 400 });
     }
 
     const existing = await query<Plan[]>(
@@ -50,11 +59,13 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     const updatedBy = (await getUpdatedByFromAuth()) ?? getUpdatedBy(req);
     await query(
       `UPDATE plan
-       SET name = ?, factory_id = ?, version = version + 1, updated_by = ?
+       SET name = ?, factory_id = ?, building = ?, floor = ?, version = version + 1, updated_by = ?
        WHERE id = ? AND deleted_yn = 'N'`,
       [
         String(name).trim(),
         factory_id != null ? Number(factory_id) : null,
+        buildingVal,
+        floorVal,
         updatedBy,
         id,
       ]

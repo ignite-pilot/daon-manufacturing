@@ -159,6 +159,11 @@ export function PlanList({ refreshKey }) {
                     >
                       {row.name}
                     </Link>
+                    {(row.building || row.floor) && (
+                      <span className="ml-2 text-xs text-gray-400">
+                        {[row.building, row.floor ? `${row.floor}층` : ''].filter(Boolean).join(' ')}
+                      </span>
+                    )}
                     {row.factory_name && (
                       <span className="ml-2 text-xs text-gray-400">{row.factory_name}</span>
                     )}

@@ -28,7 +28,7 @@ export default function UploadWizard({ onAnalyze, onCancel }) {
   const [step,   setStep]   = useState(1);
   const [file,   setFile]   = useState(null);
   const [dragOver, setDragOver] = useState(false);
-  const [form,   setForm]   = useState({ name: '', factory_id: '' });
+  const [form,   setForm]   = useState({ name: '', factory_id: '', building: '', floor: '1' });
   const [factories, setFactories] = useState([]);
   const [uploadErr, setUploadErr] = useState(null);
   const [instructions, setInstructions] = useState('');
@@ -70,8 +70,12 @@ export default function UploadWizard({ onAnalyze, onCancel }) {
   // ── Step 1 → 2: 업로드 실행 ──────────────────────────────────
   const handleUpload = async () => {
     if (!file) return;
-    const name = form.name.trim();
-    if (!name) { alert('도면 이름을 입력해 주세요.'); return; }
+    const name     = form.name.trim();
+    const building = form.building.trim();
+    const floor    = form.floor.trim();
+    if (!name)     { alert('도면 이름을 입력해 주세요.'); return; }
+    if (!building) { alert('건물 이름을 입력해 주세요.'); return; }
+    if (!floor)    { alert('층을 입력해 주세요.'); return; }
 
     setStep(2);
     setUploadErr(null);
@@ -99,6 +103,8 @@ export default function UploadWizard({ onAnalyze, onCancel }) {
         body: JSON.stringify({
           name,
           factory_id: form.factory_id ? Number(form.factory_id) : null,
+          building,
+          floor,
           original_file_name: file.name,
           original_file_format: fmt ?? ACCEPTED_EXTS[0],
           original_file_path: fileUrl,
@@ -191,6 +197,34 @@ export default function UploadWizard({ onAnalyze, onCancel }) {
             className="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
             placeholder="도면 이름을 입력하세요"
           />
+        </div>
+
+        {/* 건물 / 층 */}
+        <div className="flex gap-3">
+          <div className="flex flex-col gap-1 flex-1">
+            <label className="text-sm font-medium text-gray-700">
+              건물 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={form.building}
+              onChange={(e) => setForm((p) => ({ ...p, building: e.target.value }))}
+              className="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="예) A동"
+            />
+          </div>
+          <div className="flex flex-col gap-1" style={{ width: '6rem' }}>
+            <label className="text-sm font-medium text-gray-700">
+              층 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={form.floor}
+              onChange={(e) => setForm((p) => ({ ...p, floor: e.target.value }))}
+              className="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="예) 1"
+            />
+          </div>
         </div>
 
         {/* 연관 공장 */}

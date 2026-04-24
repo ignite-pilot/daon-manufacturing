@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
 
     const rows = await query<Plan[]>(
       `SELECT p.id, p.name, p.version, p.factory_id, f.name AS factory_name,
+              p.building, p.floor,
               p.original_file_name, p.original_file_format, p.original_file_path,
               p.svg_file_path, p.metadata_file_path,
               p.analysis_result_file_path, p.analysis_notes_file_path,
@@ -70,7 +71,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, factory_id, original_file_name, original_file_format, original_file_path } = body;
+    const { name, factory_id, building, floor, original_file_name, original_file_format, original_file_path } = body;
+
+    const buildingVal = String(building ?? '').trim();
+    const floorVal    = String(floor    ?? '').trim();
 
     if (!name || !original_file_name || !original_file_format || !original_file_path) {
       return NextResponse.json(
@@ -78,16 +82,24 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (!buildingVal) {
+      return NextResponse.json({ error: '건물 이름은 필수입니다.' }, { status: 400 });
+    }
+    if (!floorVal) {
+      return NextResponse.json({ error: '층은 필수입니다.' }, { status: 400 });
+    }
 
     const updatedBy = (await getUpdatedByFromAuth()) ?? getUpdatedBy(req);
 
     await query(
       `INSERT INTO plan
-         (name, factory_id, original_file_name, original_file_format, original_file_path, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (name, factory_id, building, floor, original_file_name, original_file_format, original_file_path, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         String(name).trim(),
         factory_id != null ? Number(factory_id) : null,
+        buildingVal,
+        floorVal,
         String(original_file_name).trim(),
         String(original_file_format).trim().toLowerCase(),
         String(original_file_path).trim(),
