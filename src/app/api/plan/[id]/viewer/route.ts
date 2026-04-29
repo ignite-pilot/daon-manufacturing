@@ -124,7 +124,11 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     const plan = rows[0];
 
     // 2. viewer.html 템플릿 읽기 (CRLF → LF 정규화: Windows 환경에서 마커 탐색 실패 방지)
-    const templatePath = path.join(process.cwd(), 'client/public/plan_viewer/viewer.html');
+    // 개발: client/public/plan_viewer/viewer.html (Vite publicDir 원본)
+    // 프로덕션: public/plan_viewer/viewer.html (Dockerfile에서 client/dist → public 복사)
+    const templatePath = process.env.NODE_ENV === 'production'
+      ? path.join(process.cwd(), 'public/plan_viewer/viewer.html')
+      : path.join(process.cwd(), 'client/public/plan_viewer/viewer.html');
     let html = readFileSync(templatePath, 'utf-8').replace(/\r\n/g, '\n');
 
     // 3. MinIO에서 SVG / 메타데이터 병렬 fetch
