@@ -25,7 +25,7 @@ function StatusBadge({ status }) {
 // ---------------------------------------------------------------------------
 const LIST_POLL_INTERVAL_MS = 5000; // ANALYZING 항목 존재 시 폴링 주기
 
-export function PlanList({ refreshKey }) {
+export function PlanList({ refreshKey, patchedPlan }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -75,16 +75,11 @@ export function PlanList({ refreshKey }) {
     return () => clearTimeout(pollTimerRef.current);
   }, [hasAnalyzing, items, fetchList]);
 
-  // 하위 경로에서 목록으로 돌아올 때 새로고침
-  const location = useLocation();
-  const prevPathRef = useRef(location.pathname);
+  // 수정 완료 시 해당 항목만 교체 (목록 전체 재조회 없음)
   useEffect(() => {
-    if (prevPathRef.current !== '/plan' && location.pathname === '/plan') {
-      setLoading(true);
-      fetchList().finally(() => setLoading(false));
-    }
-    prevPathRef.current = location.pathname;
-  }, [location.pathname, fetchList]);
+    if (!patchedPlan?.id) return;
+    setItems((prev) => prev.map((item) => item.id === patchedPlan.id ? { ...item, ...patchedPlan } : item));
+  }, [patchedPlan]);
 
   const handleDelete = async (id, name) => {
     if (!window.confirm(`"${name}" 도면을 삭제하시겠습니까?`)) return;
@@ -216,8 +211,8 @@ export default function PlanPage() {
   // { planId, instructions, format } | null
   // step 6 에서 AnalyzingModal 이 이 값을 감시하고 analyze_cad 를 호출
   const [analyzingTarget, setAnalyzingTarget] = useState(null);
-
   const [refreshKey, setRefreshKey] = useState(0);
+  const [patchedPlan, setPatchedPlan] = useState(null);
 
   // wizard 완료 콜백: 목록으로 이동 후 AnalyzingModal 활성화
   const handleWizardAnalyze = useCallback((planId, instructions, format) => {
@@ -242,7 +237,7 @@ export default function PlanPage() {
 
   return (
     <>
-      <PlanList refreshKey={refreshKey} />
+      <PlanList refreshKey={refreshKey} patchedPlan={patchedPlan} />
 
       {/* 도면 업로드 wizard */}
       {isNew && (
@@ -259,7 +254,7 @@ export default function PlanPage() {
         <LayerPopup title="도면 수정" onClose={goList}>
           <PlanForm
             planId={Number(editPlanId)}
-            onSuccess={goList}
+            onSuccess={(updated) => { setPatchedPlan(updated); goList(); }}
             onCancel={goList}
           />
         </LayerPopup>

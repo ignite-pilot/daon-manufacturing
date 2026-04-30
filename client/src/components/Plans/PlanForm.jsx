@@ -83,7 +83,7 @@ export default function PlanForm({ planId, onSuccess, onCancel }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data?.error || '저장 실패'); return; }
-      onSuccess?.();
+      onSuccess?.(data);
     } catch (e) {
       setError(e.message || '저장 실패');
     } finally {
