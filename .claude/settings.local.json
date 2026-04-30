@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec daon-mysql *)",
+      "Bash(docker exec *)"
+    ]
+  }
+}

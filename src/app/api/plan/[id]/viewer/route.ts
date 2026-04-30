@@ -131,11 +131,20 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
       : path.join(process.cwd(), 'client/public/plan_viewer/viewer.html');
     let html = readFileSync(templatePath, 'utf-8').replace(/\r\n/g, '\n');
 
-    // 3. MinIO에서 SVG / 메타데이터 병렬 fetch
+    // 3. MinIO에서 SVG / 메타데이터 병렬 fetch + DB에서 symbol overrides 조회
     //    (COMPLETED 상태가 아니거나 파일이 없으면 null → 내장 샘플 데이터 폴백)
-    const [svgText, metaText] = await Promise.all([
+    const [svgText, metaText, symbolOverrides] = await Promise.all([
       fetchFromStorage(plan.svg_file_path),
       fetchFromStorage(plan.metadata_file_path),
+      query<Record<string, unknown>[]>(
+        `SELECT handle, category, description,
+                center_x, center_y, width, height,
+                legend, annotation_id
+         FROM plan_symbol_overrides
+         WHERE plan_id = ?
+         ORDER BY id ASC`,
+        [id]
+      ).catch(() => [] as Record<string, unknown>[]),
     ]);
 
     // 4. SVG 주입
@@ -144,6 +153,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     }
 
     // 5. 메타데이터 주입
+    const overridesArray = Array.isArray(symbolOverrides) ? symbolOverrides : [];
     if (metaText) {
       try {
         const raw = JSON.parse(metaText);
@@ -162,11 +172,16 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
                 .join('')
             : undefined,
           title: raw.title ?? undefined,
+          symbolOverrides: overridesArray,
         };
         html = injectMetadata(html, svgMeta);
       } catch {
-        // JSON 파싱 실패 → 내장 메타데이터 그대로 사용
+        // JSON 파싱 실패 → symbolOverrides만이라도 주입
+        html = injectMetadata(html, { symbolOverrides: overridesArray });
       }
+    } else if (overridesArray.length > 0) {
+      // metadata.json 없음 → symbolOverrides만 주입 (내장 샘플 데이터에 병합)
+      html = injectMetadata(html, { symbolOverrides: overridesArray });
     }
 
     return new NextResponse(html, {
