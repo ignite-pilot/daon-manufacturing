@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
+import LayerPopup from '../LayerPopup';
+import PlanForm from './PlanForm';
 
 const STATUS_MAP = {
   PENDING:   { label: '대기',    cls: 'plan-status-pending' },
@@ -35,6 +37,7 @@ export default function PlanViewer({ planId }) {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [showEdit,    setShowEdit]    = useState(false);
   const navigate     = useNavigate();
   const pollTimerRef = useRef(null);
 
@@ -88,8 +91,13 @@ export default function PlanViewer({ planId }) {
     }
   }, [plan, planId]);
 
-  const goList = useCallback(() => navigate('/plan'), [navigate]);
-  const goEdit = useCallback(() => navigate(`/plan/${planId}/edit`), [navigate, planId]);
+  const goList    = useCallback(() => navigate('/plan'), [navigate]);
+  const openEdit  = useCallback(() => setShowEdit(true), []);
+  const closeEdit = useCallback(() => setShowEdit(false), []);
+  const handleEditSuccess = useCallback(() => {
+    setShowEdit(false);
+    loadPlan(true);
+  }, [loadPlan]);
 
   // ── 렌더 ─────────────────────────────────────────────────────
   if (loading) {
@@ -115,6 +123,7 @@ export default function PlanViewer({ planId }) {
   const canReanalyze = !isAnalyzing && !reanalyzing;
 
   return (
+    <>
     <div className="plan-viewer-wrap">
       {/* 상단 헤더 */}
       <div className="plan-viewer-header">
@@ -139,7 +148,7 @@ export default function PlanViewer({ planId }) {
             </button>
           )}
           {reanalyzing && <span className="plan-viewer-meta">재분석 시작 중...</span>}
-          <button type="button" className="btn-outline" style={{ fontSize: '0.8125rem' }} onClick={goEdit}>
+          <button type="button" className="btn-outline" style={{ fontSize: '0.8125rem' }} onClick={openEdit}>
             수정
           </button>
         </div>
@@ -196,5 +205,16 @@ export default function PlanViewer({ planId }) {
         </div>
       )}
     </div>
+
+    {showEdit && (
+      <LayerPopup title="도면 수정" onClose={closeEdit}>
+        <PlanForm
+          planId={planId}
+          onSuccess={handleEditSuccess}
+          onCancel={closeEdit}
+        />
+      </LayerPopup>
+    )}
+    </>
   );
 }
