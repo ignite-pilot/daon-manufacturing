@@ -486,6 +486,20 @@
             outline: none;
             filter: drop-shadow(0 0 4px #FFD700);
         }
+
+        /* === Hover highlight === */
+        [data-handle][data-hovered="true"] {
+            filter: drop-shadow(0 0 5px rgba(255,255,255,0.65));
+            cursor: pointer;
+        }
+        /* edit-selected takes priority over hover */
+        [data-edit-selected="true"][data-hovered="true"] {
+            filter: drop-shadow(0 0 4px #FFD700);
+        }
+        /* In edit mode keep crosshair cursor on hovered symbols */
+        body.edit-mode [data-handle][data-hovered="true"] {
+            cursor: crosshair;
+        }
     
 </style>
 </head>
@@ -1513,6 +1527,7 @@
         let editMode     = false;
         let selectedHandle = null;
         let selectedEl   = null;
+        let hoveredHandle  = null;
 
         // ---- DOM References ----
         let svgDoc = document.getElementById("svg-document");
@@ -1541,6 +1556,12 @@
             // Setup panning
             setupPanning();
 
+            // Setup hover highlight
+            setupHoverHighlight();
+
+            // Setup symbol click (select + postMessage)
+            setupSymbolClick();
+
             // Setup category filters
             setupCategoryFilters();
 
@@ -1553,6 +1574,15 @@
             // Setup edit mode (dblclick to enter, ESC to exit)
             setupEditMode();
 
+            // Setup drag (move symbol)
+            setupDrag();
+
+            // Setup resize (corner handle drag)
+            setupResize();
+
+            // Setup context menu (right-click on symbol)
+            setupContextMenu();
+
             // Listen for messages from parent React component
             setupMessageListener();
 
@@ -1560,7 +1590,84 @@
             setTimeout(fitToScreen, 100);
         }
 
+        // ---- Hover Highlight ----
+        function clearHover() {
+            if (!hoveredHandle) return;
+            var prev = svgDoc
+                ? svgDoc.querySelector('[data-handle="' + hoveredHandle + '"][data-hovered="true"]')
+                : null;
+            if (prev) prev.removeAttribute('data-hovered');
+            hoveredHandle = null;
+        }
+
+        function setupHoverHighlight() {
+            if (!svgContainer) return;
+
+            // Event delegation: mouseover on the SVG container
+            svgContainer.addEventListener('mouseover', function(ev) {
+                var el = ev.target.closest('[data-handle]');
+                // Ignore edit-overlay children (drag area, corner handles)
+                if (el && el.closest && el.closest('#edit-overlay')) el = null;
+
+                var handle = el ? el.getAttribute('data-handle') : null;
+                if (handle === hoveredHandle) return; // no change
+
+                // Remove previous highlight
+                clearHover();
+
+                if (handle) {
+                    hoveredHandle = handle;
+                    el.setAttribute('data-hovered', 'true');
+                }
+            });
+
+            // Clear when mouse leaves the entire viewer area
+            svgContainer.addEventListener('mouseleave', clearHover);
+        }
+
         // ---- Symbol Overrides ----
+        // ---- Symbol Click ----
+        // Track mousedown position to distinguish click from pan (drag > 5px = pan).
+        var _clickDownX = 0, _clickDownY = 0;
+
+        function setupSymbolClick() {
+            if (!svgContainer) return;
+
+            svgContainer.addEventListener('mousedown', function(ev) {
+                if (ev.button === 0) {
+                    _clickDownX = ev.clientX;
+                    _clickDownY = ev.clientY;
+                }
+            });
+
+            svgContainer.addEventListener('click', function(ev) {
+                // Ignore if mouse moved significantly (pan gesture)
+                var dx = ev.clientX - _clickDownX;
+                var dy = ev.clientY - _clickDownY;
+                if (Math.sqrt(dx * dx + dy * dy) > 5) return;
+
+                var el = ev.target.closest('[data-handle]');
+                // Ignore overlay interactive elements
+                if (el && el.closest('#edit-overlay')) el = null;
+                if (!el) return;
+
+                var handle = el.getAttribute('data-handle');
+                if (!handle) return;
+
+                // In edit mode: switching to a different symbol re-enters edit mode
+                if (editMode && handle !== selectedHandle) {
+                    enterEditMode(handle);
+                }
+
+                // Notify parent (info bar + edit panel)
+                window.parent.postMessage({
+                    type: 'SYMBOL_CLICKED',
+                    handle: handle,
+                    data: symbolOverrideMap[handle] || null,
+                }, '*');
+            });
+        }
+
         // handle -> override map (also referenced in Pillar 3 drag/resize)
         var symbolOverrideMap = {};
 
@@ -1626,6 +1733,8 @@
             editMode = true;
             selectedHandle = handle;
             document.body.classList.add('edit-mode');
+            // Remove inline cursor so CSS body.edit-mode takes over
+            if (svgContainer) svgContainer.style.cursor = '';
 
             // Mark selected element
             if (selectedEl) selectedEl.removeAttribute('data-edit-selected');
@@ -1644,9 +1753,24 @@
             editMode = false;
             selectedHandle = null;
             document.body.classList.remove('edit-mode');
+            // Restore grab cursor now that edit mode is off
+            if (svgContainer) svgContainer.style.cursor = 'grab';
 
             if (selectedEl) selectedEl.removeAttribute('data-edit-selected');
             selectedEl = null;
+
+            // Force-cancel any in-progress drag or resize
+            if (isDragging) {
+                isDragging = false;
+                dragHandle = null; dragEl = null;
+                if (svgContainer) svgContainer.classList.remove('dragging');
+                var _ov = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                if (_ov) _ov.removeAttribute('transform');
+            }
+            if (isResizing) {
+                isResizing = false;
+                resizeHandle = null; resizeEl = null; resizeCorner = null;
+            }
 
             clearEditOverlay(); // implemented in 2-4
 
@@ -1672,6 +1796,273 @@
                 if (ev.key === 'Escape' && editMode) {
                     exitEditMode();
                 }
+            });
+        }
+
+        // ---- Context Menu ----
+        function setupContextMenu() {
+            if (!svgContainer) return;
+
+            svgContainer.addEventListener('contextmenu', function(ev) {
+                // Prevent browser's native context menu inside the viewer
+                ev.preventDefault();
+
+                if (!editMode) return;  // contextmenu only active in edit mode
+
+                var el = ev.target.closest('[data-handle]');
+                if (el && el.closest('#edit-overlay')) el = null;
+                if (!el) return;
+
+                var handle = el.getAttribute('data-handle');
+                if (!handle) return;
+
+                window.parent.postMessage({
+                    type:    'SYMBOL_CONTEXTMENU',
+                    handle:  handle,
+                    clientX: ev.clientX,
+                    clientY: ev.clientY,
+                }, '*');
+            });
+        }
+
+        // ---- Drag (Move) ----
+        var isDragging    = false;
+        var dragHandle    = null;
+        var dragEl        = null;
+        var dragStartScreenX = 0, dragStartScreenY = 0;
+        var dragStartSvgCx   = 0, dragStartSvgCy   = 0;
+        var dragNaturalCx    = 0, dragNaturalCy     = 0;
+
+        function setupDrag() {
+            if (!svgContainer) return;
+
+            // mousedown on .edit-drag-area → start drag
+            svgContainer.addEventListener('mousedown', function(ev) {
+                if (ev.button !== 0 || !editMode) return;
+                if (!ev.target.classList.contains('edit-drag-area')) return;
+
+                var handle = ev.target.getAttribute('data-handle');
+                if (!handle) return;
+
+                // Find the actual symbol element (outside the overlay)
+                var candidates = svgDoc
+                    ? Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
+                    : [];
+                var el = candidates.find(function(e) {
+                    return !e.closest('#edit-overlay');
+                });
+                if (!el) return;
+
+                isDragging     = true;
+                dragHandle     = handle;
+                dragEl         = el;
+                dragStartScreenX = ev.clientX;
+                dragStartScreenY = ev.clientY;
+
+                // Cache natural center (getBBox excludes element's own transform)
+                if (!el.hasAttribute('data-natural-cx')) {
+                    try {
+                        var b = el.getBBox();
+                        el.setAttribute('data-natural-cx', b.x + b.width  / 2);
+                        el.setAttribute('data-natural-cy', b.y + b.height / 2);
+                    } catch(e) { isDragging = false; return; }
+                }
+                dragNaturalCx = parseFloat(el.getAttribute('data-natural-cx'));
+                dragNaturalCy = parseFloat(el.getAttribute('data-natural-cy'));
+
+                // Visual center at drag start (includes any prior position override)
+                var bbox = getSymbolBbox(handle);
+                dragStartSvgCx = bbox ? bbox.x + bbox.width  / 2 : dragNaturalCx;
+                dragStartSvgCy = bbox ? bbox.y + bbox.height / 2 : dragNaturalCy;
+
+                clearHover();
+                svgContainer.classList.add('dragging');
+                ev.preventDefault();
+                ev.stopPropagation();
+            });
+
+            // mousemove: update symbol position + translate overlay group in sync
+            document.addEventListener('mousemove', function(ev) {
+                if (!isDragging) return;
+                var svgDx = (ev.clientX - dragStartScreenX) / currentZoom;
+                var svgDy = (ev.clientY - dragStartScreenY) / currentZoom;
+
+                dragEl.setAttribute('transform',
+                    'translate(' + (dragStartSvgCx - dragNaturalCx + svgDx) + ','
+                                 + (dragStartSvgCy - dragNaturalCy + svgDy) + ')');
+
+                var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                if (overlay) overlay.setAttribute('transform',
+                    'translate(' + svgDx + ',' + svgDy + ')');
+            });
+
+            // mouseup: commit new position
+            document.addEventListener('mouseup', function(ev) {
+                if (!isDragging) return;
+                isDragging = false;
+                svgContainer.classList.remove('dragging');
+
+                var svgDx = (ev.clientX - dragStartScreenX) / currentZoom;
+                var svgDy = (ev.clientY - dragStartScreenY) / currentZoom;
+                var newCx = dragStartSvgCx + svgDx;
+                var newCy = dragStartSvgCy + svgDy;
+
+                // Update local override map
+                if (!symbolOverrideMap[dragHandle]) {
+                    symbolOverrideMap[dragHandle] = { handle: dragHandle };
+                }
+                symbolOverrideMap[dragHandle].center_x = newCx;
+                symbolOverrideMap[dragHandle].center_y = newCy;
+
+                // Remove overlay group translate, redraw at final position
+                var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                if (overlay) overlay.removeAttribute('transform');
+                drawSelectionOverlay(dragHandle);
+
+                // Notify parent to persist
+                window.parent.postMessage({
+                    type: 'SYMBOL_MOVED',
+                    handle:   dragHandle,
+                    center_x: newCx,
+                    center_y: newCy,
+                }, '*');
+
+                dragHandle = null;
+                dragEl     = null;
+            });
+        }
+
+        // ---- Resize (corner handle drag, center-fixed) ----
+        var isResizing       = false;
+        var resizeHandle     = null;  // DXF handle of symbol being resized
+        var resizeEl         = null;  // SVG element
+        var resizeCorner     = null;  // 'nw'|'ne'|'sw'|'se'
+        var resizeStartScreenX = 0, resizeStartScreenY = 0;
+        var resizeCx         = 0, resizeCy = 0;  // fixed center (SVG coords)
+        var resizeStartW     = 0, resizeStartH = 0;
+
+        var CORNER_SIGN = {
+            nw: { sx: -1, sy: -1 },
+            ne: { sx:  1, sy: -1 },
+            sw: { sx: -1, sy:  1 },
+            se: { sx:  1, sy:  1 },
+        };
+
+        function setupResize() {
+            if (!svgContainer) return;
+
+            // mousedown on a corner handle
+            svgContainer.addEventListener('mousedown', function(ev) {
+                if (ev.button !== 0) return;
+                var target = ev.target;
+                if (!target.classList.contains('edit-corner-handle')) return;
+                ev.preventDefault();
+                ev.stopPropagation();
+
+                resizeCorner = target.getAttribute('data-corner');
+                if (!CORNER_SIGN[resizeCorner]) return;
+
+                resizeHandle = selectedHandle;
+                if (!resizeHandle) return;
+
+                resizeEl = svgDoc ? svgDoc.querySelector('[data-handle="' + resizeHandle + '"]') : null;
+
+                var bbox = getSymbolBbox(resizeHandle);
+                resizeCx = bbox.x + bbox.width  / 2;
+                resizeCy = bbox.y + bbox.height / 2;
+                resizeStartW = bbox.width;
+                resizeStartH = bbox.height;
+
+                resizeStartScreenX = ev.clientX;
+                resizeStartScreenY = ev.clientY;
+                isResizing = true;
+            });
+
+            // mousemove: update overlay in-place (no DOM rebuild)
+            document.addEventListener('mousemove', function(ev) {
+                if (!isResizing) return;
+
+                var sign   = CORNER_SIGN[resizeCorner];
+                var svgDx  = (ev.clientX - resizeStartScreenX) / currentZoom;
+                var svgDy  = (ev.clientY - resizeStartScreenY) / currentZoom;
+
+                // new half-extents (minimum 5px)
+                var newHalfW = Math.max(5, resizeStartW / 2 + sign.sx * svgDx);
+                var newHalfH = Math.max(5, resizeStartH / 2 + sign.sy * svgDy);
+
+                var x = resizeCx - newHalfW;
+                var y = resizeCy - newHalfH;
+                var w = newHalfW * 2;
+                var h = newHalfH * 2;
+
+                var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                if (!overlay) return;
+
+                // Update sel-rect
+                var selRect = overlay.querySelector('.edit-sel-rect');
+                if (selRect) {
+                    selRect.setAttribute('x', x);
+                    selRect.setAttribute('y', y);
+                    selRect.setAttribute('width',  w);
+                    selRect.setAttribute('height', h);
+                }
+
+                // Update drag-area
+                var dragArea = overlay.querySelector('.edit-drag-area');
+                if (dragArea) {
+                    dragArea.setAttribute('x', x);
+                    dragArea.setAttribute('y', y);
+                    dragArea.setAttribute('width',  w);
+                    dragArea.setAttribute('height', h);
+                }
+
+                // Update corner handles
+                var corners = overlay.querySelectorAll('.edit-corner-handle');
+                var cpos = [
+                    { corner: 'nw', cx: x,     cy: y     },
+                    { corner: 'ne', cx: x + w,  cy: y     },
+                    { corner: 'sw', cx: x,      cy: y + h },
+                    { corner: 'se', cx: x + w,  cy: y + h },
+                ];
+                corners.forEach(function(c) {
+                    var cp = cpos.find(function(p) { return p.corner === c.getAttribute('data-corner'); });
+                    if (cp) { c.setAttribute('cx', cp.cx); c.setAttribute('cy', cp.cy); }
+                });
+            });
+
+            // mouseup: commit resize
+            document.addEventListener('mouseup', function(ev) {
+                if (!isResizing) return;
+                isResizing = false;
+
+                var sign   = CORNER_SIGN[resizeCorner];
+                var svgDx  = (ev.clientX - resizeStartScreenX) / currentZoom;
+                var svgDy  = (ev.clientY - resizeStartScreenY) / currentZoom;
+
+                var newW = Math.max(10, resizeStartW + sign.sx * svgDx * 2);
+                var newH = Math.max(10, resizeStartH + sign.sy * svgDy * 2);
+
+                // Update local override map (center unchanged)
+                if (!symbolOverrideMap[resizeHandle]) {
+                    symbolOverrideMap[resizeHandle] = { handle: resizeHandle };
+                }
+                symbolOverrideMap[resizeHandle].width  = newW;
+                symbolOverrideMap[resizeHandle].height = newH;
+
+                // Redraw overlay at committed size
+                drawSelectionOverlay(resizeHandle);
+
+                // Notify parent to persist
+                window.parent.postMessage({
+                    type:   'SYMBOL_RESIZED',
+                    handle: resizeHandle,
+                    width:  newW,
+                    height: newH,
+                }, '*');
+
+                resizeHandle = null;
+                resizeEl     = null;
+                resizeCorner = null;
             });
         }
 
@@ -1932,6 +2323,9 @@
 
             svgContainer.addEventListener("mousedown", function(ev) {
                 if (ev.button === 0) {
+                    // Block pan when mousedown lands on edit-overlay elements
+                    // (drag area / corner handles handled separately in 3-4/3-5)
+                    if (ev.target.closest && ev.target.closest('#edit-overlay')) return;
                     isPanning = true;
                     startX = ev.clientX - panX;
                     startY = ev.clientY - panY;
@@ -1950,7 +2344,10 @@
 
             document.addEventListener("mouseup", function() {
                 isPanning = false;
-                if (svgContainer) svgContainer.style.cursor = "grab";
+                if (svgContainer) {
+                    // In edit mode, let body.edit-mode CSS control cursor
+                    svgContainer.style.cursor = editMode ? '' : 'grab';
+                }
             });
 
             svgContainer.style.cursor = "grab";
