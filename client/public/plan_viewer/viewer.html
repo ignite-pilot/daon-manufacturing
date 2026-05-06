@@ -1660,10 +1660,14 @@
                 }
 
                 // Notify parent (info bar + edit panel)
+                // svgCategory/svgFacility: current SVG attribute values (reflect overrides
+                // already applied to DOM). Needed by React when no DB override exists yet.
                 window.parent.postMessage({
-                    type: 'SYMBOL_CLICKED',
-                    handle: handle,
-                    data: symbolOverrideMap[handle] || null,
+                    type:        'SYMBOL_CLICKED',
+                    handle:      handle,
+                    data:        symbolOverrideMap[handle] || null,
+                    svgCategory: el.getAttribute('data-plantsim-category') || null,
+                    svgFacility: el.getAttribute('data-facility')          || null,
                 }, '*');
             });
         }
@@ -1682,6 +1686,13 @@
                 if (!els.length) return;
 
                 els.forEach(function(el) {
+                    // Store originals before first override so SYMBOL_OVERRIDE_DELETED can revert
+                    if (!el.hasAttribute('data-original-category')) {
+                        el.setAttribute('data-original-category', el.getAttribute('data-plantsim-category') || '');
+                    }
+                    if (!el.hasAttribute('data-original-facility')) {
+                        el.setAttribute('data-original-facility', el.getAttribute('data-facility') || '');
+                    }
                     // category changed: update attribute + move to correct <g id="cat-XXX"> group
                     if (ov.category) {
                         var oldCat = el.getAttribute('data-plantsim-category');
@@ -2085,6 +2096,13 @@
                             ? svgDoc.querySelectorAll('[data-handle="' + ov.handle + '"]')
                             : [];
                         els.forEach(function(el) {
+                            // Store originals before first override so SYMBOL_OVERRIDE_DELETED can revert
+                            if (!el.hasAttribute('data-original-category')) {
+                                el.setAttribute('data-original-category', el.getAttribute('data-plantsim-category') || '');
+                            }
+                            if (!el.hasAttribute('data-original-facility')) {
+                                el.setAttribute('data-original-facility', el.getAttribute('data-facility') || '');
+                            }
                             if (ov.category) {
                                 var oldCat = el.getAttribute('data-plantsim-category');
                                 el.setAttribute('data-plantsim-category', ov.category);
@@ -2103,6 +2121,40 @@
                         if (selectedHandle === ov.handle) {
                             drawSelectionOverlay(ov.handle);
                         }
+
+                        recalcCategoryCounts();
+                        break;
+                    }
+
+                    // Override was deleted by parent: revert SVG element to original attrs
+                    case 'SYMBOL_OVERRIDE_DELETED': {
+                        var dHandle = msg.handle;
+                        if (!dHandle) break;
+                        delete symbolOverrideMap[dHandle];
+
+                        var dEls = svgDoc
+                            ? svgDoc.querySelectorAll('[data-handle="' + dHandle + '"]')
+                            : [];
+                        dEls.forEach(function(el) {
+                            // Revert category + reparent to original group
+                            var origCat = el.getAttribute('data-original-category') || 'UNDEFINED';
+                            var curCat  = el.getAttribute('data-plantsim-category');
+                            el.setAttribute('data-plantsim-category', origCat);
+                            if (curCat !== origCat) {
+                                var tg = catGroups[origCat];
+                                if (tg) tg.appendChild(el);
+                            }
+                            // Revert legend
+                            var origFac = el.getAttribute('data-original-facility') || '';
+                            el.setAttribute('data-facility', origFac);
+                            // Remove position/transform override
+                            el.removeAttribute('transform');
+                            el.removeAttribute('data-natural-cx');
+                            el.removeAttribute('data-natural-cy');
+                        });
+
+                        // Exit edit mode if this symbol was selected
+                        if (selectedHandle === dHandle) exitEditMode();
 
                         recalcCategoryCounts();
                         break;

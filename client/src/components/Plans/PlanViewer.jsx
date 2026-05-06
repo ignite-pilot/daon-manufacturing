@@ -4,6 +4,9 @@ import { apiFetch } from '../../lib/api';
 import LayerPopup from '../LayerPopup';
 import PlanForm from './PlanForm';
 
+// Shape of selectedSymbol state:
+// { handle: string, data: object|null, svgCategory: string|null, svgFacility: string|null }
+
 const STATUS_MAP = {
   PENDING:   { label: '대기',    cls: 'plan-status-pending' },
   ANALYZING: { label: '분석 중', cls: 'plan-status-analyzing' },
@@ -36,10 +39,20 @@ export default function PlanViewer({ planId }) {
   const [plan,        setPlan]        = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
-  const [reanalyzing, setReanalyzing] = useState(false);
-  const [showEdit,    setShowEdit]    = useState(false);
-  const navigate     = useNavigate();
-  const pollTimerRef = useRef(null);
+  const [reanalyzing,     setReanalyzing]     = useState(false);
+  const [showEdit,        setShowEdit]        = useState(false);
+  // Symbol interaction state (driven by postMessage from iframe)
+  const [selectedSymbol,  setSelectedSymbol]  = useState(null);
+  const [isEditMode,      setIsEditMode]      = useState(false);
+  // { handle, x, y } | null  — set on SYMBOL_CONTEXTMENU, cleared on exit
+  const [contextMenu,     setContextMenu]     = useState(null);
+
+  const navigate          = useNavigate();
+  const pollTimerRef      = useRef(null);
+  const iframeRef         = useRef(null);
+  // Ref mirror of selectedSymbol — lets stable message-listener closures read latest value
+  const selectedSymbolRef = useRef(null);
+  useEffect(() => { selectedSymbolRef.current = selectedSymbol; }, [selectedSymbol]);
 
   // ── 도면 정보 로드 ─────────────────────────────────────────────
   const loadPlan = useCallback((silent = false) => {
@@ -57,6 +70,139 @@ export default function PlanViewer({ planId }) {
   }, [planId]);
 
   useEffect(() => { loadPlan(); }, [loadPlan]);
+
+  // ── iframe → React 메시지 수신 ────────────────────────────────────
+  useEffect(() => {
+    function handleMessage(ev) {
+      // iframe 이외 출처 무시
+      if (iframeRef.current && ev.source !== iframeRef.current.contentWindow) return;
+      const msg = ev.data;
+      if (!msg || typeof msg.type !== 'string') return;
+
+      switch (msg.type) {
+        case 'SYMBOL_CLICKED':
+          setSelectedSymbol({
+            handle:      msg.handle,
+            data:        msg.data        ?? null,
+            svgCategory: msg.svgCategory ?? null,
+            svgFacility: msg.svgFacility ?? null,
+          });
+          break;
+        case 'EDIT_MODE_ENTERED':
+          setIsEditMode(true);
+          break;
+        case 'EDIT_MODE_EXITED':
+          setIsEditMode(false);
+          setContextMenu(null);
+          break;
+
+        case 'SYMBOL_CONTEXTMENU':
+          setContextMenu({ handle: msg.handle, x: msg.clientX, y: msg.clientY });
+          break;
+
+        case 'SYMBOL_MOVED':
+        case 'SYMBOL_RESIZED': {
+          const handle = msg.handle;
+          const sym    = selectedSymbolRef.current;
+          // 현재 선택된 심볼의 기존 override 데이터 (없으면 빈 객체)
+          const prev   = (sym?.handle === handle ? sym.data : null) ?? {};
+          const category = prev.category || (sym?.handle === handle ? sym.svgCategory : null) || 'UNDEFINED';
+
+          const body = {
+            handle,
+            category,
+            description:   prev.description   ?? null,
+            center_x:      msg.type === 'SYMBOL_MOVED'   ? msg.center_x         : (prev.center_x   ?? null),
+            center_y:      msg.type === 'SYMBOL_MOVED'   ? msg.center_y         : (prev.center_y   ?? null),
+            width:         msg.type === 'SYMBOL_RESIZED' ? msg.width            : (prev.width      ?? null),
+            height:        msg.type === 'SYMBOL_RESIZED' ? msg.height           : (prev.height     ?? null),
+            legend:        prev.legend        ?? null,
+            annotation_id: prev.annotation_id ?? null,
+          };
+
+          apiFetch(`/api/plan/${planId}/symbols`, {
+            method: 'PUT',
+            body:   JSON.stringify(body),
+          })
+            .then(res => res.ok ? res.json() : null)
+            .then(saved => {
+              if (!saved) return;
+              // selectedSymbol.data 를 저장된 결과로 갱신
+              setSelectedSymbol(prev =>
+                prev?.handle === handle ? { ...prev, data: saved } : prev
+              );
+              // iframe 의 symbolOverrideMap 도 동기화
+              iframeRef.current?.contentWindow?.postMessage(
+                { type: 'SYMBOL_SAVED', data: saved }, '*'
+              );
+            })
+            .catch(() => {});
+          break;
+        }
+
+        default:
+          break;
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  // planId는 컴포넌트 수명 내 불변(route re-mount). selectedSymbol은 ref로 접근.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** iframe 으로 메시지 전송 (4-3/4-4에서 사용) */
+  const sendToIframe = useCallback((msg) => {
+    iframeRef.current?.contentWindow?.postMessage(msg, '*');
+  }, []);
+
+  /** 편집 패널 닫기: iframe에 EXIT_EDIT 전송 (viewer가 editMode 종료 + EDIT_MODE_EXITED 회신) */
+  const handleCloseEditPanel = useCallback(() => {
+    sendToIframe({ type: 'EXIT_EDIT' });
+  }, [sendToIframe]);
+
+  /** 컨텍스트 메뉴 닫기 */
+  const handleCloseContextMenu = useCallback(() => setContextMenu(null), []);
+
+  /**
+   * 심볼 override 저장 (5-5에서 호출)
+   * body: { handle, category, description?, center_x?, center_y?, width?, height?, legend?, annotation_id? }
+   * 저장 성공 시 selectedSymbol.data 갱신 + SYMBOL_SAVED → iframe
+   */
+  const handleSymbolSave = useCallback(async (body) => {
+    const res = await apiFetch(`/api/plan/${planId}/symbols`, {
+      method: 'PUT',
+      body:   JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `HTTP ${res.status}`);
+    }
+    const saved = await res.json();
+    setSelectedSymbol(prev =>
+      prev?.handle === saved.handle ? { ...prev, data: saved } : prev
+    );
+    sendToIframe({ type: 'SYMBOL_SAVED', data: saved });
+    return saved;
+  }, [planId, sendToIframe]);
+
+  /**
+   * 심볼 override 삭제 (5-5에서 호출)
+   * 삭제 성공 시 selectedSymbol.data 초기화 + SYMBOL_OVERRIDE_DELETED → iframe
+   */
+  const handleSymbolDelete = useCallback(async (handle) => {
+    const res = await apiFetch(
+      `/api/plan/${planId}/symbols?handle=${encodeURIComponent(handle)}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `HTTP ${res.status}`);
+    }
+    setSelectedSymbol(prev =>
+      prev?.handle === handle ? { ...prev, data: null } : prev
+    );
+    sendToIframe({ type: 'SYMBOL_OVERRIDE_DELETED', handle });
+  }, [planId, sendToIframe]);
 
   // ── ANALYZING 상태 폴링 ────────────────────────────────────────
   useEffect(() => {
@@ -157,6 +303,7 @@ export default function PlanViewer({ planId }) {
       {/* 뷰어 / 상태 영역 */}
       {isCompleted ? (
         <iframe
+          ref={iframeRef}
           key={planId}
           className="plan-viewer-iframe"
           src={`/api/plan/${planId}/viewer`}
