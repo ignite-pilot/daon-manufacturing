@@ -60,6 +60,16 @@ export default function PlanViewer({ planId }) {
   // Ref mirror of selectedSymbol — lets stable message-listener closures read latest value
   const selectedSymbolRef = useRef(null);
   useEffect(() => { selectedSymbolRef.current = selectedSymbol; }, [selectedSymbol]);
+
+  // SymbolInfoBar 표시 여부를 body 클래스로 반영 → FAB 위치 CSS 조건부 조정
+  useEffect(() => {
+    if (selectedSymbol) {
+      document.body.classList.add('symbol-infobar-open');
+    } else {
+      document.body.classList.remove('symbol-infobar-open');
+    }
+    return () => document.body.classList.remove('symbol-infobar-open');
+  }, [selectedSymbol]);
   // 이전 analysis_status 추적 (ANALYZING → COMPLETED 전환 감지용)
   const prevStatusRef = useRef(null);
 

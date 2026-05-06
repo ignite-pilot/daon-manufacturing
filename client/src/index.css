@@ -766,13 +766,18 @@ a:hover { text-decoration: underline; }
 /* 채팅 UI: 화면 오른쪽 하단 파란색 채팅 아이콘 (Floating) */
 .chat-layer-wrap {
   position: fixed;
-  bottom: 1.5rem;
+  bottom: 3.5rem;
   right: 1.5rem;
   z-index: 1101;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   pointer-events: none;
+  transition: bottom 0.2s ease;
+}
+/* SymbolInfoBar(38px) 표시 중일 때 FAB를 그 위로 올림 */
+body.symbol-infobar-open .chat-layer-wrap {
+  bottom: calc(3.5rem + 38px);
 }
 .chat-layer-wrap > * {
   pointer-events: auto;
