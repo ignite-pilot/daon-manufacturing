@@ -1538,6 +1538,16 @@
         function init() {
             if (!svgDoc || !svgContainer) return;
 
+            // edit-overlay 그룹은 샘플 SVG에만 내장되어 있고
+            // MinIO에서 주입된 실제 SVG에는 없으므로 없을 경우 동적으로 생성
+            if (!document.getElementById('edit-overlay')) {
+                var _ns = 'http://www.w3.org/2000/svg';
+                var _og = document.createElementNS(_ns, 'g');
+                _og.id = 'edit-overlay';
+                _og.setAttribute('pointer-events', 'none');
+                svgDoc.appendChild(_og);
+            }
+
             // Populate stats
             const statsContainer = document.getElementById("stats-container");
             if (statsContainer) {
@@ -1603,25 +1613,47 @@
         function setupHoverHighlight() {
             if (!svgContainer) return;
 
-            // Event delegation: mouseover on the SVG container
-            svgContainer.addEventListener('mouseover', function(ev) {
+            // mousemove: 직접 요소 위일 때도, override로 확장된 영역 위일 때도 감지
+            svgContainer.addEventListener('mousemove', function(ev) {
                 var el = ev.target.closest('[data-handle]');
-                // Ignore edit-overlay children (drag area, corner handles)
+                // edit-overlay 자식(drag-area, corner handle) 제외
                 if (el && el.closest && el.closest('#edit-overlay')) el = null;
 
                 var handle = el ? el.getAttribute('data-handle') : null;
-                if (handle === hoveredHandle) return; // no change
 
-                // Remove previous highlight
+                // 직접 요소가 없으면 symbolOverrideMap bbox로 좌표 hit-test
+                // (리사이즈 override로 원본 path보다 커진 영역을 커버)
+                if (!handle) {
+                    var crect = svgContainer.getBoundingClientRect();
+                    var svgX  = (ev.clientX - crect.left - panX) / currentZoom;
+                    var svgY  = (ev.clientY - crect.top  - panY) / currentZoom;
+                    var ks = Object.keys(symbolOverrideMap);
+                    for (var i = 0; i < ks.length; i++) {
+                        var bbox = getSymbolBbox(ks[i]);
+                        if (!bbox) continue;
+                        if (svgX >= bbox.x && svgX <= bbox.x + bbox.width &&
+                            svgY >= bbox.y && svgY <= bbox.y + bbox.height) {
+                            handle = ks[i];
+                            break;
+                        }
+                    }
+                }
+
+                if (handle === hoveredHandle) return;
                 clearHover();
 
                 if (handle) {
                     hoveredHandle = handle;
-                    el.setAttribute('data-hovered', 'true');
+                    // edit-overlay 외 첫 번째 실제 심볼 요소에 hover 적용
+                    var hoverEl = svgDoc
+                        ? Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
+                            .find(function(e) { return !e.closest('#edit-overlay'); })
+                        : null;
+                    if (hoverEl) hoverEl.setAttribute('data-hovered', 'true');
                 }
             });
 
-            // Clear when mouse leaves the entire viewer area
+            // 뷰어 영역 이탈 시 hover 해제
             svgContainer.addEventListener('mouseleave', clearHover);
         }
 
@@ -1674,6 +1706,8 @@
 
         // handle -> override map (also referenced in Pillar 3 drag/resize)
         var symbolOverrideMap = {};
+        // Snapshot of symbolOverrideMap[handle] taken at enterEditMode (null = no prior override)
+        var editStartOv = undefined;
 
         function applySymbolOverrides() {
             var overrides = svgMetadata.symbolOverrides;
@@ -1706,9 +1740,9 @@
                     if (ov.legend != null) {
                         el.setAttribute('data-facility', ov.legend);
                     }
-                    // position override: translate to saved center_x/y
-                    applyPositionOverride(el, ov);
                 });
+                // position + size override: apply as handle-level transform
+                applySymbolTransform(ov.handle, ov);
             });
 
             recalcCategoryCounts();
@@ -1743,6 +1777,10 @@
         function enterEditMode(handle) {
             editMode = true;
             selectedHandle = handle;
+            // Snapshot pre-edit override so EXIT_EDIT_CANCEL can revert visuals
+            var cur = symbolOverrideMap[handle];
+            editStartOv = cur ? JSON.parse(JSON.stringify(cur)) : null;
+
             document.body.classList.add('edit-mode');
             // Remove inline cursor so CSS body.edit-mode takes over
             if (svgContainer) svgContainer.style.cursor = '';
@@ -1759,9 +1797,12 @@
             window.parent.postMessage({ type: 'EDIT_MODE_ENTERED', handle: handle }, '*');
         }
 
-        function exitEditMode() {
+        // revert=true: revert SVG visuals to pre-edit state (for cancel).
+        // revert=false (default): keep current visuals (for save-then-exit or delete).
+        function exitEditMode(revert) {
             if (!editMode) return;
             editMode = false;
+            var exitHandle = selectedHandle;
             selectedHandle = null;
             document.body.classList.remove('edit-mode');
             // Restore grab cursor now that edit mode is off
@@ -1775,7 +1816,7 @@
                 isDragging = false;
                 dragHandle = null; dragEl = null;
                 if (svgContainer) svgContainer.classList.remove('dragging');
-                var _ov = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                var _ov = document.getElementById('edit-overlay');
                 if (_ov) _ov.removeAttribute('transform');
             }
             if (isResizing) {
@@ -1783,7 +1824,25 @@
                 resizeHandle = null; resizeEl = null; resizeCorner = null;
             }
 
-            clearEditOverlay(); // implemented in 2-4
+            clearEditOverlay();
+
+            // On cancel: revert SVG elements to the state they were in before edit mode
+            if (revert && exitHandle) {
+                if (editStartOv) {
+                    // Had a prior override: restore it
+                    symbolOverrideMap[exitHandle] = editStartOv;
+                    applySymbolTransform(exitHandle, editStartOv);
+                } else {
+                    // No prior override: remove any transform added during edit
+                    delete symbolOverrideMap[exitHandle];
+                    var rEls = svgDoc
+                        ? Array.from(svgDoc.querySelectorAll('[data-handle="' + exitHandle + '"]'))
+                            .filter(function(e) { return !e.closest('#edit-overlay'); })
+                        : [];
+                    rEls.forEach(function(el) { el.removeAttribute('transform'); });
+                }
+            }
+            editStartOv = undefined;
 
             window.parent.postMessage({ type: 'EDIT_MODE_EXITED' }, '*');
         }
@@ -1818,8 +1877,6 @@
                 // Prevent browser's native context menu inside the viewer
                 ev.preventDefault();
 
-                if (!editMode) return;  // contextmenu only active in edit mode
-
                 var el = ev.target.closest('[data-handle]');
                 if (el && el.closest('#edit-overlay')) el = null;
                 if (!el) return;
@@ -1842,7 +1899,6 @@
         var dragEl        = null;
         var dragStartScreenX = 0, dragStartScreenY = 0;
         var dragStartSvgCx   = 0, dragStartSvgCy   = 0;
-        var dragNaturalCx    = 0, dragNaturalCy     = 0;
 
         function setupDrag() {
             if (!svgContainer) return;
@@ -1855,36 +1911,17 @@
                 var handle = ev.target.getAttribute('data-handle');
                 if (!handle) return;
 
-                // Find the actual symbol element (outside the overlay)
-                var candidates = svgDoc
-                    ? Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
-                    : [];
-                var el = candidates.find(function(e) {
-                    return !e.closest('#edit-overlay');
-                });
-                if (!el) return;
-
                 isDragging     = true;
                 dragHandle     = handle;
-                dragEl         = el;
+                dragEl         = null;
                 dragStartScreenX = ev.clientX;
                 dragStartScreenY = ev.clientY;
 
-                // Cache natural center (getBBox excludes element's own transform)
-                if (!el.hasAttribute('data-natural-cx')) {
-                    try {
-                        var b = el.getBBox();
-                        el.setAttribute('data-natural-cx', b.x + b.width  / 2);
-                        el.setAttribute('data-natural-cy', b.y + b.height / 2);
-                    } catch(e) { isDragging = false; return; }
-                }
-                dragNaturalCx = parseFloat(el.getAttribute('data-natural-cx'));
-                dragNaturalCy = parseFloat(el.getAttribute('data-natural-cy'));
-
-                // Visual center at drag start (includes any prior position override)
+                // Visual center at drag start (includes any prior position/size override)
                 var bbox = getSymbolBbox(handle);
-                dragStartSvgCx = bbox ? bbox.x + bbox.width  / 2 : dragNaturalCx;
-                dragStartSvgCy = bbox ? bbox.y + bbox.height / 2 : dragNaturalCy;
+                if (!bbox) { isDragging = false; return; }
+                dragStartSvgCx = bbox.x + bbox.width  / 2;
+                dragStartSvgCy = bbox.y + bbox.height / 2;
 
                 clearHover();
                 svgContainer.classList.add('dragging');
@@ -1898,11 +1935,15 @@
                 var svgDx = (ev.clientX - dragStartScreenX) / currentZoom;
                 var svgDy = (ev.clientY - dragStartScreenY) / currentZoom;
 
-                dragEl.setAttribute('transform',
-                    'translate(' + (dragStartSvgCx - dragNaturalCx + svgDx) + ','
-                                 + (dragStartSvgCy - dragNaturalCy + svgDy) + ')');
+                // Build preview override (keep existing size override if any)
+                var existing = symbolOverrideMap[dragHandle] || {};
+                var tempOv = Object.assign({}, existing, {
+                    center_x: dragStartSvgCx + svgDx,
+                    center_y: dragStartSvgCy + svgDy,
+                });
+                applySymbolTransform(dragHandle, tempOv);
 
-                var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                var overlay = document.getElementById('edit-overlay');
                 if (overlay) overlay.setAttribute('transform',
                     'translate(' + svgDx + ',' + svgDy + ')');
             });
@@ -1925,8 +1966,11 @@
                 symbolOverrideMap[dragHandle].center_x = newCx;
                 symbolOverrideMap[dragHandle].center_y = newCy;
 
+                // Apply final transform to all SVG elements of this handle
+                applySymbolTransform(dragHandle, symbolOverrideMap[dragHandle]);
+
                 // Remove overlay group translate, redraw at final position
-                var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                var overlay = document.getElementById('edit-overlay');
                 if (overlay) overlay.removeAttribute('transform');
                 drawSelectionOverlay(dragHandle);
 
@@ -2006,7 +2050,7 @@
                 var w = newHalfW * 2;
                 var h = newHalfH * 2;
 
-                var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+                var overlay = document.getElementById('edit-overlay');
                 if (!overlay) return;
 
                 // Update sel-rect
@@ -2060,6 +2104,9 @@
                 symbolOverrideMap[resizeHandle].width  = newW;
                 symbolOverrideMap[resizeHandle].height = newH;
 
+                // Apply transform to all SVG elements of this handle
+                applySymbolTransform(resizeHandle, symbolOverrideMap[resizeHandle]);
+
                 // Redraw overlay at committed size
                 drawSelectionOverlay(resizeHandle);
 
@@ -2091,9 +2138,10 @@
                         if (!ov || !ov.handle) break;
                         symbolOverrideMap[ov.handle] = ov;
 
-                        // Re-apply category / legend to SVG element
+                        // Re-apply category / legend to SVG element (edit-overlay 제외)
                         var els = svgDoc
-                            ? svgDoc.querySelectorAll('[data-handle="' + ov.handle + '"]')
+                            ? Array.from(svgDoc.querySelectorAll('[data-handle="' + ov.handle + '"]'))
+                                .filter(function(e) { return !e.closest('#edit-overlay'); })
                             : [];
                         els.forEach(function(el) {
                             // Store originals before first override so SYMBOL_OVERRIDE_DELETED can revert
@@ -2114,8 +2162,8 @@
                             if (ov.legend != null) {
                                 el.setAttribute('data-facility', ov.legend);
                             }
-                            applyPositionOverride(el, ov);
                         });
+                        applySymbolTransform(ov.handle, ov);
 
                         // Redraw overlay if this handle is currently selected
                         if (selectedHandle === ov.handle) {
@@ -2133,7 +2181,8 @@
                         delete symbolOverrideMap[dHandle];
 
                         var dEls = svgDoc
-                            ? svgDoc.querySelectorAll('[data-handle="' + dHandle + '"]')
+                            ? Array.from(svgDoc.querySelectorAll('[data-handle="' + dHandle + '"]'))
+                                .filter(function(e) { return !e.closest('#edit-overlay'); })
                             : [];
                         dEls.forEach(function(el) {
                             // Revert category + reparent to original group
@@ -2147,10 +2196,14 @@
                             // Revert legend
                             var origFac = el.getAttribute('data-original-facility') || '';
                             el.setAttribute('data-facility', origFac);
-                            // Remove position/transform override
+                            // Remove position/size/transform override
                             el.removeAttribute('transform');
                             el.removeAttribute('data-natural-cx');
                             el.removeAttribute('data-natural-cy');
+                            el.removeAttribute('data-nat-x');
+                            el.removeAttribute('data-nat-y');
+                            el.removeAttribute('data-nat-w');
+                            el.removeAttribute('data-nat-h');
                         });
 
                         // Exit edit mode if this symbol was selected
@@ -2160,9 +2213,19 @@
                         break;
                     }
 
-                    // Parent requests exit from edit mode (e.g. popup closed)
+                    // Parent requests enter edit mode for a specific handle
+                    case 'ENTER_EDIT':
+                        if (msg.handle) enterEditMode(msg.handle);
+                        break;
+
+                    // Parent requests exit from edit mode after save (no visual revert)
                     case 'EXIT_EDIT':
-                        exitEditMode();
+                        exitEditMode(false);
+                        break;
+
+                    // Parent requests cancel: exit + revert visuals to pre-edit state
+                    case 'EXIT_EDIT_CANCEL':
+                        exitEditMode(true);
                         break;
 
                     default:
@@ -2175,42 +2238,103 @@
         // ---- Edit Overlay ----
         // Corner handle size in CSS pixels (scaled inversely with zoom so handles
         // stay a constant visual size regardless of zoom level).
-        var HANDLE_PX = 6;
+        var HANDLE_PX = 8;
 
-        // Apply center_x/y position override to a single SVG element via translate transform.
-        // Natural center is cached as data-natural-cx/cy on first call so subsequent
-        // saves can recompute the delta without calling getBBox() again.
-        function applyPositionOverride(el, ov) {
-            if (ov.center_x == null || ov.center_y == null) return;
-            if (!el.hasAttribute('data-natural-cx')) {
-                try {
-                    var b = el.getBBox();
-                    el.setAttribute('data-natural-cx', b.x + b.width  / 2);
-                    el.setAttribute('data-natural-cy', b.y + b.height / 2);
-                } catch(e) { return; }
-            }
-            var ncx = parseFloat(el.getAttribute('data-natural-cx'));
-            var ncy = parseFloat(el.getAttribute('data-natural-cy'));
-            var dx  = +ov.center_x - ncx;
-            var dy  = +ov.center_y - ncy;
-            el.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
+        // Apply position + size override to all SVG elements of a handle.
+        // Uses translate(tx, ty) scale(sx, sy) transform so both position and size
+        // overrides are reflected visually. Natural bbox is cached per-element as
+        // data-nat-* on first call; transform is removed temporarily if needed to
+        // get a clean pre-transform measurement.
+        function applySymbolTransform(handle, ov) {
+            if (!svgDoc) return;
+            var els = Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
+                           .filter(function(e) { return !e.closest('#edit-overlay'); });
+            if (!els.length) return;
+
+            // Cache natural (pre-transform) bbox per element
+            els.forEach(function(el) {
+                if (!el.hasAttribute('data-nat-x')) {
+                    var saved = el.getAttribute('transform');
+                    if (saved) el.removeAttribute('transform');
+                    try {
+                        var b = el.getBBox();
+                        el.setAttribute('data-nat-x', b.x);
+                        el.setAttribute('data-nat-y', b.y);
+                        el.setAttribute('data-nat-w', b.width);
+                        el.setAttribute('data-nat-h', b.height);
+                    } catch(e2) {}
+                    if (saved) el.setAttribute('transform', saved);
+                }
+            });
+
+            // Union natural bbox from cached values
+            var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            els.forEach(function(el) {
+                if (!el.hasAttribute('data-nat-x')) return;
+                var nx = parseFloat(el.getAttribute('data-nat-x'));
+                var ny = parseFloat(el.getAttribute('data-nat-y'));
+                var nw = parseFloat(el.getAttribute('data-nat-w'));
+                var nh = parseFloat(el.getAttribute('data-nat-h'));
+                if (nw === 0 && nh === 0) return;
+                minX = Math.min(minX, nx);        minY = Math.min(minY, ny);
+                maxX = Math.max(maxX, nx + nw);   maxY = Math.max(maxY, ny + nh);
+            });
+            if (!isFinite(minX)) return;
+            var natW = maxX - minX, natH = maxY - minY;
+            if (natW === 0 || natH === 0) return;
+            var natCx = minX + natW / 2, natCy = minY + natH / 2;
+
+            // Target center + scale factors
+            var toCx = (ov.center_x != null) ? +ov.center_x : natCx;
+            var toCy = (ov.center_y != null) ? +ov.center_y : natCy;
+            var sx   = (ov.width  != null) ? +ov.width  / natW : 1;
+            var sy   = (ov.height != null) ? +ov.height / natH : 1;
+
+            // transform: translate(tx,ty) scale(sx,sy)
+            // maps natural center (natCx, natCy) → target center (toCx, toCy)
+            var tx = toCx - natCx * sx;
+            var ty = toCy - natCy * sy;
+
+            els.forEach(function(el) {
+                if (sx === 1 && sy === 1) {
+                    el.setAttribute('transform', 'translate(' + tx + ',' + ty + ')');
+                } else {
+                    el.setAttribute('transform',
+                        'translate(' + tx + ',' + ty + ') scale(' + sx + ',' + sy + ')');
+                }
+            });
         }
 
         function getSymbolBbox(handle) {
             if (!svgDoc) return null;
-            var el = svgDoc.querySelector('[data-handle="' + handle + '"]');
-            if (!el || typeof el.getBBox !== 'function') return null;
+            // 한 handle에 path 요소가 여러 개일 수 있으므로 모두 수집 (edit-overlay 제외)
+            var els = Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
+                          .filter(function(e) { return !e.closest('#edit-overlay'); });
+            if (!els.length) return null;
             try {
-                // getBBox() returns the natural bbox ignoring the element's own transform
-                var b = el.getBBox();
-                if (b.width === 0 && b.height === 0) return null;
+                // 모든 요소의 union bbox 계산
+                var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                els.forEach(function(e) {
+                    try {
+                        var b = e.getBBox();
+                        if (b.width === 0 && b.height === 0) return;
+                        minX = Math.min(minX, b.x);
+                        minY = Math.min(minY, b.y);
+                        maxX = Math.max(maxX, b.x + b.width);
+                        maxY = Math.max(maxY, b.y + b.height);
+                    } catch(e2) {}
+                });
+                if (!isFinite(minX)) return null;
+                var natW = maxX - minX;
+                var natH = maxY - minY;
+                if (natW === 0 && natH === 0) return null;
                 var ov = symbolOverrideMap[handle];
                 // Visual center: use DB override if set, else natural center
-                var cx = (ov && ov.center_x != null) ? +ov.center_x : (b.x + b.width  / 2);
-                var cy = (ov && ov.center_y != null) ? +ov.center_y : (b.y + b.height / 2);
+                var cx = (ov && ov.center_x != null) ? +ov.center_x : (minX + natW / 2);
+                var cy = (ov && ov.center_y != null) ? +ov.center_y : (minY + natH / 2);
                 // Visual size: use DB override if set, else natural size
-                var w  = (ov && ov.width  != null) ? +ov.width  : b.width;
-                var h  = (ov && ov.height != null) ? +ov.height : b.height;
+                var w  = (ov && ov.width  != null) ? +ov.width  : natW;
+                var h  = (ov && ov.height != null) ? +ov.height : natH;
                 return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
             } catch(e) { return null; }
         }
@@ -2220,7 +2344,7 @@
             var bbox = getSymbolBbox(handle);
             if (!bbox) return;
 
-            var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+            var overlay = document.getElementById('edit-overlay');
             if (!overlay) return;
             overlay.removeAttribute('pointer-events'); // allow child events
 
@@ -2269,14 +2393,14 @@
         }
 
         function clearEditOverlay() {
-            var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+            var overlay = document.getElementById('edit-overlay');
             if (!overlay) return;
             overlay.innerHTML = '';
             overlay.setAttribute('pointer-events', 'none');
         }
 
         function updateOverlayScale() {
-            var overlay = svgDoc ? svgDoc.getElementById('edit-overlay') : null;
+            var overlay = document.getElementById('edit-overlay');
             if (!overlay || !overlay.hasChildNodes()) return;
             var r  = HANDLE_PX / currentZoom;
             var sw = 1.5 / currentZoom;

@@ -269,7 +269,7 @@ export default function SymbolEditPanel({
         )}
         <button type="button" className="btn-outline" style={{ fontSize: '0.8125rem' }}
           onClick={onClose} disabled={busy}>
-          닫기
+          취소
         </button>
         <button type="button" className="btn-primary" style={{ fontSize: '0.8125rem' }}
           onClick={handleSave} disabled={busy || !onSave}>

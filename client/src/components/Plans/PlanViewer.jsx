@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
 import LayerPopup from '../LayerPopup';
@@ -17,6 +17,7 @@ const STATUS_MAP = {
 };
 
 const POLL_INTERVAL_MS = 5000;
+const CTX_OFFSET_X     = 8; // 우클릭 좌표 기준 메뉴 좌측 여백 (px)
 
 function StatusBadge({ status }) {
   const s = STATUS_MAP[status] || { label: status || '-', cls: '' };
@@ -57,9 +58,14 @@ export default function PlanViewer({ planId }) {
   const navigate          = useNavigate();
   const pollTimerRef      = useRef(null);
   const iframeRef         = useRef(null);
-  // Ref mirror of selectedSymbol — lets stable message-listener closures read latest value
+  const ctxMenuRef        = useRef(null);
+  // Ref mirrors — stable message-listener closures에서 최신 state 읽기용
   const selectedSymbolRef = useRef(null);
+  const isEditModeRef     = useRef(false);
+  // 편집 진입 시점의 symbol.data 스냅샷 — 취소 시 복원용
+  const editStartDataRef  = useRef(null);
   useEffect(() => { selectedSymbolRef.current = selectedSymbol; }, [selectedSymbol]);
+  useEffect(() => { isEditModeRef.current     = isEditMode;     }, [isEditMode]);
 
   // SymbolInfoBar 표시 여부를 body 클래스로 반영 → FAB 위치 CSS 조건부 조정
   useEffect(() => {
@@ -72,6 +78,47 @@ export default function PlanViewer({ planId }) {
   }, [selectedSymbol]);
   // 이전 analysis_status 추적 (ANALYZING → COMPLETED 전환 감지용)
   const prevStatusRef = useRef(null);
+
+  // ── 컨텍스트 메뉴 viewport-aware 포지셔닝 ───────────────────────────
+  // useLayoutEffect: DOM 변경 직후 paint 전에 실행 → 깜빡임 없이 위치 계산
+  useLayoutEffect(() => {
+    const el = ctxMenuRef.current;
+    if (!el || !contextMenu) return;
+
+    // 먼저 숨기고 측정 (측정 중 렌더 노출 방지)
+    el.style.visibility = 'hidden';
+    el.style.left   = '0';
+    el.style.top    = '0';
+    el.style.right  = 'auto';
+    el.style.bottom = 'auto';
+
+    const { width: menuW, height: menuH } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const defaultLeft = contextMenu.x + CTX_OFFSET_X;
+    const defaultTop  = contextMenu.y;
+
+    // 수평: 우측 초과 → 클릭 좌표 왼쪽으로 전환
+    if (defaultLeft + menuW > vw) {
+      el.style.left  = 'auto';
+      el.style.right = `${vw - (contextMenu.x - CTX_OFFSET_X)}px`;
+    } else {
+      el.style.left  = `${defaultLeft}px`;
+      el.style.right = 'auto';
+    }
+
+    // 수직: 하단 초과 → 클릭 좌표 위쪽으로 전환
+    if (defaultTop + menuH > vh) {
+      el.style.top    = 'auto';
+      el.style.bottom = `${vh - contextMenu.y}px`;
+    } else {
+      el.style.top    = `${defaultTop}px`;
+      el.style.bottom = 'auto';
+    }
+
+    el.style.visibility = 'visible';
+  }, [contextMenu]);
 
   // ── 심볼 인터랙션 상태 일괄 초기화 ──────────────────────────────
   const resetSymbolState = useCallback(() => {
@@ -135,53 +182,48 @@ export default function PlanViewer({ planId }) {
           break;
         case 'EDIT_MODE_ENTERED':
           setIsEditMode(true);
+          setContextMenu(null);
+          editStartDataRef.current = selectedSymbolRef.current?.data ?? null;
           break;
         case 'EDIT_MODE_EXITED':
           setIsEditMode(false);
           setContextMenu(null);
           break;
 
-        case 'SYMBOL_CONTEXTMENU':
-          setContextMenu({ handle: msg.handle, x: msg.clientX, y: msg.clientY });
+        case 'SYMBOL_CONTEXTMENU': {
+          // 편집 모드에서는 우측 패널로 편집하므로 컨텍스트 메뉴 표시 안 함
+          if (isEditModeRef.current) break;
+          // msg.clientX/Y는 iframe 뷰포트 기준 → 메인 창 뷰포트 기준으로 변환
+          const iframeRect = iframeRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
+          setContextMenu({
+            handle: msg.handle,
+            x: msg.clientX + iframeRect.left,
+            y: msg.clientY + iframeRect.top,
+          });
           break;
+        }
 
         case 'SYMBOL_MOVED':
         case 'SYMBOL_RESIZED': {
+          // 드래그·리사이즈는 DB에 즉시 저장하지 않는다.
+          // [저장] 클릭 시 편집 패널 폼 값(이 업데이트를 반영한)이 한꺼번에 저장됨.
+          // [취소] 클릭 시 iframe이 시각을 원복하고 아래 로컬 state도 원복된다.
           const handle = msg.handle;
-          const sym    = selectedSymbolRef.current;
-          // 현재 선택된 심볼의 기존 override 데이터 (없으면 빈 객체)
-          const prev   = (sym?.handle === handle ? sym.data : null) ?? {};
-          const category = prev.category || (sym?.handle === handle ? sym.svgCategory : null) || 'UNDEFINED';
-
-          const body = {
-            handle,
-            category,
-            description:   prev.description   ?? null,
-            center_x:      msg.type === 'SYMBOL_MOVED'   ? msg.center_x         : (prev.center_x   ?? null),
-            center_y:      msg.type === 'SYMBOL_MOVED'   ? msg.center_y         : (prev.center_y   ?? null),
-            width:         msg.type === 'SYMBOL_RESIZED' ? msg.width            : (prev.width      ?? null),
-            height:        msg.type === 'SYMBOL_RESIZED' ? msg.height           : (prev.height     ?? null),
-            legend:        prev.legend        ?? null,
-            annotation_id: prev.annotation_id ?? null,
-          };
-
-          apiFetch(`/api/plan/${planId}/symbols`, {
-            method: 'PUT',
-            body:   JSON.stringify(body),
-          })
-            .then(res => res.ok ? res.json() : null)
-            .then(saved => {
-              if (!saved) return;
-              // selectedSymbol.data 를 저장된 결과로 갱신
-              setSelectedSymbol(prev =>
-                prev?.handle === handle ? { ...prev, data: saved } : prev
-              );
-              // iframe 의 symbolOverrideMap 도 동기화
-              iframeRef.current?.contentWindow?.postMessage(
-                { type: 'SYMBOL_SAVED', data: saved }, '*'
-              );
-            })
-            .catch(() => {});
+          setSelectedSymbol(prev => {
+            if (!prev || prev.handle !== handle) return prev;
+            const prevData = prev.data ?? {};
+            return {
+              ...prev,
+              data: {
+                ...prevData,
+                handle,
+                center_x: msg.type === 'SYMBOL_MOVED'   ? msg.center_x : (prevData.center_x ?? null),
+                center_y: msg.type === 'SYMBOL_MOVED'   ? msg.center_y : (prevData.center_y ?? null),
+                width:    msg.type === 'SYMBOL_RESIZED' ? msg.width    : (prevData.width    ?? null),
+                height:   msg.type === 'SYMBOL_RESIZED' ? msg.height   : (prevData.height   ?? null),
+              },
+            };
+          });
           break;
         }
 
@@ -200,19 +242,37 @@ export default function PlanViewer({ planId }) {
     iframeRef.current?.contentWindow?.postMessage(msg, '*');
   }, []);
 
-  /** 편집 패널 닫기: iframe에 EXIT_EDIT 전송 (viewer가 editMode 종료 + EDIT_MODE_EXITED 회신) */
+  /** 편집 취소: iframe에 EXIT_EDIT_CANCEL 전송 → viewer가 시각 원복 + editMode 종료.
+   *  selectedSymbol.data도 편집 진입 시점 값으로 복원한다. */
   const handleCloseEditPanel = useCallback(() => {
-    sendToIframe({ type: 'EXIT_EDIT' });
+    sendToIframe({ type: 'EXIT_EDIT_CANCEL' });
+    const revertData = editStartDataRef.current;
+    setSelectedSymbol(prev => prev ? { ...prev, data: revertData } : prev);
+    editStartDataRef.current = null;
   }, [sendToIframe]);
+
+  // 편집 모드 중 SymbolEditPanel이 포커스를 가져가면 iframe의 keydown이 동작하지 않으므로
+  // 부모 창에서도 ESC를 감지해 EXIT_EDIT 전송
+  useEffect(() => {
+    if (!isEditMode) return;
+    function onKeyDown(ev) {
+      if (ev.key === 'Escape') handleCloseEditPanel();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isEditMode, handleCloseEditPanel]);
 
   /** 컨텍스트 메뉴 닫기 */
   const handleCloseContextMenu = useCallback(() => setContextMenu(null), []);
 
-  /** 심볼 정보 바 닫기: 편집 중이면 EXIT_EDIT도 전송 */
+  /** 심볼 정보 바 닫기: 편집 중이면 취소(원복) 처리 */
   const handleInfoBarClose = useCallback(() => {
-    if (isEditMode) sendToIframe({ type: 'EXIT_EDIT' });
+    if (isEditModeRef.current) {
+      sendToIframe({ type: 'EXIT_EDIT_CANCEL' });
+      editStartDataRef.current = null;
+    }
     setSelectedSymbol(null);
-  }, [isEditMode, sendToIframe]);
+  }, [sendToIframe]);
 
   /**
    * 심볼 override 저장 (5-5에서 호출)
@@ -232,6 +292,10 @@ export default function PlanViewer({ planId }) {
     setSelectedSymbol(prev =>
       prev?.handle === saved.handle ? { ...prev, data: saved } : prev
     );
+    editStartDataRef.current = null;
+    // EXIT_EDIT(원복 없음) → iframe overlay 클리어 + editMode 종료
+    // SYMBOL_SAVED → iframe이 저장된 값으로 시각적 transform 적용
+    sendToIframe({ type: 'EXIT_EDIT' });
     sendToIframe({ type: 'SYMBOL_SAVED', data: saved });
     return saved;
   }, [planId, sendToIframe]);
@@ -443,36 +507,19 @@ export default function PlanViewer({ planId }) {
       <>
         <div className="symbol-ctx-overlay" onClick={handleCloseContextMenu} />
         <div
+          ref={ctxMenuRef}
           className="symbol-ctx-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          style={{ visibility: 'hidden' }}
         >
-          {isEditMode && (
-            <button
-              type="button"
-              className="symbol-ctx-item"
-              onClick={() => { handleCloseContextMenu(); handleCloseEditPanel(); }}
-            >
-              편집 종료
-            </button>
-          )}
-          {selectedSymbol?.data && (
-            <button
-              type="button"
-              className="symbol-ctx-item symbol-ctx-item-danger"
-              onClick={() => {
-                handleCloseContextMenu();
-                handleSymbolDelete(contextMenu.handle).catch(() => {});
-              }}
-            >
-              오버라이드 초기화
-            </button>
-          )}
           <button
             type="button"
             className="symbol-ctx-item"
-            onClick={handleCloseContextMenu}
+            onClick={() => {
+              handleCloseContextMenu();
+              sendToIframe({ type: 'ENTER_EDIT', handle: contextMenu.handle });
+            }}
           >
-            닫기
+            수정
           </button>
         </div>
       </>
