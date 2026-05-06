@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
 import LayerPopup from '../LayerPopup';
 import PlanForm from './PlanForm';
+import SymbolInfoBar from './SymbolInfoBar';
+import SymbolEditPanel from './SymbolEditPanel';
 
 // Shape of selectedSymbol state:
 // { handle: string, data: object|null, svgCategory: string|null, svgFacility: string|null }
@@ -46,6 +48,11 @@ export default function PlanViewer({ planId }) {
   const [isEditMode,      setIsEditMode]      = useState(false);
   // { handle, x, y } | null  — set on SYMBOL_CONTEXTMENU, cleared on exit
   const [contextMenu,     setContextMenu]     = useState(null);
+  // 범례·주석 목록 (GET /api/plan/:id/symbols 에서 로드)
+  const [facilityLegend,  setFacilityLegend]  = useState([]);
+  const [annotations,     setAnnotations]     = useState([]);
+  // iframe 재로드 키 — 재분석 완료 시 증가
+  const [viewerKey,       setViewerKey]       = useState(0);
 
   const navigate          = useNavigate();
   const pollTimerRef      = useRef(null);
@@ -53,6 +60,34 @@ export default function PlanViewer({ planId }) {
   // Ref mirror of selectedSymbol — lets stable message-listener closures read latest value
   const selectedSymbolRef = useRef(null);
   useEffect(() => { selectedSymbolRef.current = selectedSymbol; }, [selectedSymbol]);
+  // 이전 analysis_status 추적 (ANALYZING → COMPLETED 전환 감지용)
+  const prevStatusRef = useRef(null);
+
+  // ── 심볼 인터랙션 상태 일괄 초기화 ──────────────────────────────
+  const resetSymbolState = useCallback(() => {
+    setSelectedSymbol(null);
+    setIsEditMode(false);
+    setContextMenu(null);
+  }, []);
+
+  // ANALYZING → COMPLETED 전환: iframe 재로드 + 심볼 상태 초기화
+  // 재분석 전(handleReanalyze): plan 상태가 ANALYZING으로 바뀌면 심볼 상태만 초기화
+  useEffect(() => {
+    const status = plan?.analysis_status;
+    const prev   = prevStatusRef.current;
+    prevStatusRef.current = status;
+
+    if (status === 'ANALYZING' && prev !== 'ANALYZING') {
+      // 재분석 시작 → 심볼 상태 초기화 (iframe은 아직 기존 SVG 유지)
+      resetSymbolState();
+    } else if (status === 'COMPLETED' && prev === 'ANALYZING') {
+      // 재분석 완료 → iframe 재로드 + 상태 초기화
+      setViewerKey(k => k + 1);
+      resetSymbolState();
+      setFacilityLegend([]);
+      setAnnotations([]);
+    }
+  }, [plan?.analysis_status, resetSymbolState]);
 
   // ── 도면 정보 로드 ─────────────────────────────────────────────
   const loadPlan = useCallback((silent = false) => {
@@ -163,6 +198,12 @@ export default function PlanViewer({ planId }) {
   /** 컨텍스트 메뉴 닫기 */
   const handleCloseContextMenu = useCallback(() => setContextMenu(null), []);
 
+  /** 심볼 정보 바 닫기: 편집 중이면 EXIT_EDIT도 전송 */
+  const handleInfoBarClose = useCallback(() => {
+    if (isEditMode) sendToIframe({ type: 'EXIT_EDIT' });
+    setSelectedSymbol(null);
+  }, [isEditMode, sendToIframe]);
+
   /**
    * 심볼 override 저장 (5-5에서 호출)
    * body: { handle, category, description?, center_x?, center_y?, width?, height?, legend?, annotation_id? }
@@ -203,6 +244,21 @@ export default function PlanViewer({ planId }) {
     );
     sendToIframe({ type: 'SYMBOL_OVERRIDE_DELETED', handle });
   }, [planId, sendToIframe]);
+
+  // ── facilityLegend / annotations 로드 (COMPLETED 전환 시 1회) ───────────
+  useEffect(() => {
+    if (plan?.analysis_status !== 'COMPLETED') return;
+    let cancelled = false;
+    apiFetch(`/api/plan/${planId}/symbols`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (cancelled || !data) return;
+        if (Array.isArray(data.facilityLegend)) setFacilityLegend(data.facilityLegend);
+        if (Array.isArray(data.annotations))    setAnnotations(data.annotations);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [plan?.analysis_status, planId]);
 
   // ── ANALYZING 상태 폴링 ────────────────────────────────────────
   useEffect(() => {
@@ -302,14 +358,33 @@ export default function PlanViewer({ planId }) {
 
       {/* 뷰어 / 상태 영역 */}
       {isCompleted ? (
-        <iframe
-          ref={iframeRef}
-          key={planId}
-          className="plan-viewer-iframe"
-          src={`/api/plan/${planId}/viewer`}
-          title="도면 뷰어"
-          allowFullScreen
-        />
+        <div className="plan-viewer-body">
+          <iframe
+            ref={iframeRef}
+            key={`${planId}-${viewerKey}`}
+            className="plan-viewer-iframe"
+            src={`/api/plan/${planId}/viewer`}
+            title="도면 뷰어"
+            allowFullScreen
+          />
+          {/* 심볼 정보 바 (심볼 클릭 시 하단 overlay) */}
+          <SymbolInfoBar
+            symbol={selectedSymbol}
+            isEditMode={isEditMode}
+            onClose={handleInfoBarClose}
+          />
+          {/* 심볼 편집 패널 (더블클릭 → 편집 모드 진입 시 우측 overlay) */}
+          {isEditMode && selectedSymbol && (
+            <SymbolEditPanel
+              symbol={selectedSymbol}
+              facilityLegend={facilityLegend}
+              annotations={annotations}
+              onClose={handleCloseEditPanel}
+              onSave={handleSymbolSave}
+              onDelete={handleSymbolDelete}
+            />
+          )}
+        </div>
       ) : (
         <div className="plan-viewer-placeholder">
           <div className="plan-viewer-placeholder-inner">
@@ -352,6 +427,46 @@ export default function PlanViewer({ planId }) {
         </div>
       )}
     </div>
+
+    {/* 우클릭 컨텍스트 메뉴 */}
+    {contextMenu && (
+      <>
+        <div className="symbol-ctx-overlay" onClick={handleCloseContextMenu} />
+        <div
+          className="symbol-ctx-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {isEditMode && (
+            <button
+              type="button"
+              className="symbol-ctx-item"
+              onClick={() => { handleCloseContextMenu(); handleCloseEditPanel(); }}
+            >
+              편집 종료
+            </button>
+          )}
+          {selectedSymbol?.data && (
+            <button
+              type="button"
+              className="symbol-ctx-item symbol-ctx-item-danger"
+              onClick={() => {
+                handleCloseContextMenu();
+                handleSymbolDelete(contextMenu.handle).catch(() => {});
+              }}
+            >
+              오버라이드 초기화
+            </button>
+          )}
+          <button
+            type="button"
+            className="symbol-ctx-item"
+            onClick={handleCloseContextMenu}
+          >
+            닫기
+          </button>
+        </div>
+      </>
+    )}
 
     {showEdit && (
       <LayerPopup title="도면 수정" onClose={closeEdit}>
