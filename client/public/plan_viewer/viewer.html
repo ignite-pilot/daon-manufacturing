@@ -465,12 +465,11 @@
             pointer-events: none;
         }
 
-        /* Corner resize handles */
-        .edit-corner-handle {
+        /* Resize handles (corner + edge mid) */
+        .edit-resize-handle {
             fill: #fff;
             stroke: #FFD700;
             stroke-width: 1.5;
-            cursor: nwse-resize;
             pointer-events: all;
         }
 
@@ -2092,12 +2091,54 @@
         var resizeStartW     = 0, resizeStartH = 0;
         var resizeBeforeState = null;
 
-        var CORNER_SIGN = {
-            nw: { sx: -1, sy: -1 },
-            ne: { sx:  1, sy: -1 },
-            sw: { sx: -1, sy:  1 },
-            se: { sx:  1, sy:  1 },
-        };
+        // Unified resize computation for all 8 handles.
+        // Corner handles keep center fixed; edge handles keep the opposite edge fixed.
+        // Returns { x, y, w, h, newCx, newCy } — the new overlay bbox + new override center.
+        function computeResizeBbox(corner, svgDx, svgDy) {
+            var startW = resizeStartW, startH = resizeStartH;
+            var cx = resizeCx, cy = resizeCy;
+            var newW = startW, newH = startH, newCx = cx, newCy = cy;
+            var anchor;
+            switch (corner) {
+                case 'nw':
+                    newW = Math.max(10, startW - svgDx * 2);
+                    newH = Math.max(10, startH - svgDy * 2);
+                    break;
+                case 'ne':
+                    newW = Math.max(10, startW + svgDx * 2);
+                    newH = Math.max(10, startH - svgDy * 2);
+                    break;
+                case 'sw':
+                    newW = Math.max(10, startW - svgDx * 2);
+                    newH = Math.max(10, startH + svgDy * 2);
+                    break;
+                case 'se':
+                    newW = Math.max(10, startW + svgDx * 2);
+                    newH = Math.max(10, startH + svgDy * 2);
+                    break;
+                case 'tm':
+                    anchor = cy + startH / 2;
+                    newH = Math.max(10, startH - svgDy);
+                    newCy = anchor - newH / 2;
+                    break;
+                case 'bm':
+                    anchor = cy - startH / 2;
+                    newH = Math.max(10, startH + svgDy);
+                    newCy = anchor + newH / 2;
+                    break;
+                case 'lm':
+                    anchor = cx + startW / 2;
+                    newW = Math.max(10, startW - svgDx);
+                    newCx = anchor - newW / 2;
+                    break;
+                case 'rm':
+                    anchor = cx - startW / 2;
+                    newW = Math.max(10, startW + svgDx);
+                    newCx = anchor + newW / 2;
+                    break;
+            }
+            return { x: newCx - newW / 2, y: newCy - newH / 2, w: newW, h: newH, newCx: newCx, newCy: newCy };
+        }
 
         function setupResize() {
             if (!svgContainer) return;
@@ -2106,12 +2147,12 @@
             svgContainer.addEventListener('mousedown', function(ev) {
                 if (ev.button !== 0) return;
                 var target = ev.target;
-                if (!target.classList.contains('edit-corner-handle')) return;
+                if (!target.classList.contains('edit-resize-handle')) return;
                 ev.preventDefault();
                 ev.stopPropagation();
 
                 resizeCorner = target.getAttribute('data-corner');
-                if (!CORNER_SIGN[resizeCorner]) return;
+                if (!resizeCorner) return;
 
                 resizeHandle = selectedHandle;
                 if (!resizeHandle) return;
@@ -2134,18 +2175,10 @@
             document.addEventListener('mousemove', function(ev) {
                 if (!isResizing) return;
 
-                var sign   = CORNER_SIGN[resizeCorner];
-                var svgDx  = (ev.clientX - resizeStartScreenX) / currentZoom;
-                var svgDy  = (ev.clientY - resizeStartScreenY) / currentZoom;
-
-                // new half-extents (minimum 5px)
-                var newHalfW = Math.max(5, resizeStartW / 2 + sign.sx * svgDx);
-                var newHalfH = Math.max(5, resizeStartH / 2 + sign.sy * svgDy);
-
-                var x = resizeCx - newHalfW;
-                var y = resizeCy - newHalfH;
-                var w = newHalfW * 2;
-                var h = newHalfH * 2;
+                var svgDx = (ev.clientX - resizeStartScreenX) / currentZoom;
+                var svgDy = (ev.clientY - resizeStartScreenY) / currentZoom;
+                var nb    = computeResizeBbox(resizeCorner, svgDx, svgDy);
+                var x = nb.x, y = nb.y, w = nb.w, h = nb.h;
 
                 var overlay = document.getElementById('edit-overlay');
                 if (!overlay) return;
@@ -2153,32 +2186,28 @@
                 // Update sel-rect
                 var selRect = overlay.querySelector('.edit-sel-rect');
                 if (selRect) {
-                    selRect.setAttribute('x', x);
-                    selRect.setAttribute('y', y);
-                    selRect.setAttribute('width',  w);
-                    selRect.setAttribute('height', h);
+                    selRect.setAttribute('x', x);     selRect.setAttribute('y', y);
+                    selRect.setAttribute('width', w);  selRect.setAttribute('height', h);
                 }
 
                 // Update drag-area
                 var dragArea = overlay.querySelector('.edit-drag-area');
                 if (dragArea) {
-                    dragArea.setAttribute('x', x);
-                    dragArea.setAttribute('y', y);
-                    dragArea.setAttribute('width',  w);
-                    dragArea.setAttribute('height', h);
+                    dragArea.setAttribute('x', x);     dragArea.setAttribute('y', y);
+                    dragArea.setAttribute('width', w);  dragArea.setAttribute('height', h);
                 }
 
-                // Update corner handles
-                var corners = overlay.querySelectorAll('.edit-corner-handle');
-                var cpos = [
-                    { corner: 'nw', cx: x,     cy: y     },
-                    { corner: 'ne', cx: x + w,  cy: y     },
-                    { corner: 'sw', cx: x,      cy: y + h },
-                    { corner: 'se', cx: x + w,  cy: y + h },
-                ];
-                corners.forEach(function(c) {
-                    var cp = cpos.find(function(p) { return p.corner === c.getAttribute('data-corner'); });
-                    if (cp) { c.setAttribute('cx', cp.cx); c.setAttribute('cy', cp.cy); }
+                // Update all 8 resize handle positions
+                var hs = HANDLE_PX * 0.8 / currentZoom;
+                var hpos = {
+                    nw: { hx: x,     hy: y     }, ne: { hx: x+w,   hy: y     },
+                    sw: { hx: x,     hy: y+h   }, se: { hx: x+w,   hy: y+h   },
+                    tm: { hx: x+w/2, hy: y     }, bm: { hx: x+w/2, hy: y+h   },
+                    lm: { hx: x,     hy: y+h/2 }, rm: { hx: x+w,   hy: y+h/2 },
+                };
+                overlay.querySelectorAll('.edit-resize-handle').forEach(function(h) {
+                    var p = hpos[h.getAttribute('data-corner')];
+                    if (p) { h.setAttribute('x', p.hx - hs); h.setAttribute('y', p.hy - hs); }
                 });
             });
 
@@ -2187,19 +2216,18 @@
                 if (!isResizing) return;
                 isResizing = false;
 
-                var sign   = CORNER_SIGN[resizeCorner];
-                var svgDx  = (ev.clientX - resizeStartScreenX) / currentZoom;
-                var svgDy  = (ev.clientY - resizeStartScreenY) / currentZoom;
+                var svgDx = (ev.clientX - resizeStartScreenX) / currentZoom;
+                var svgDy = (ev.clientY - resizeStartScreenY) / currentZoom;
+                var nb    = computeResizeBbox(resizeCorner, svgDx, svgDy);
 
-                var newW = Math.max(10, resizeStartW + sign.sx * svgDx * 2);
-                var newH = Math.max(10, resizeStartH + sign.sy * svgDy * 2);
-
-                // Update local override map (center unchanged)
+                // Update local override map
                 if (!symbolOverrideMap[resizeHandle]) {
                     symbolOverrideMap[resizeHandle] = { handle: resizeHandle };
                 }
-                symbolOverrideMap[resizeHandle].width  = newW;
-                symbolOverrideMap[resizeHandle].height = newH;
+                symbolOverrideMap[resizeHandle].width    = nb.w;
+                symbolOverrideMap[resizeHandle].height   = nb.h;
+                symbolOverrideMap[resizeHandle].center_x = nb.newCx;
+                symbolOverrideMap[resizeHandle].center_y = nb.newCy;
 
                 // Apply transform to all SVG elements of this handle
                 applySymbolTransform(resizeHandle, symbolOverrideMap[resizeHandle]);
@@ -2214,10 +2242,12 @@
 
                 // Notify parent to persist
                 window.parent.postMessage({
-                    type:   'SYMBOL_RESIZED',
-                    handle: resizeHandle,
-                    width:  newW,
-                    height: newH,
+                    type:     'SYMBOL_RESIZED',
+                    handle:   resizeHandle,
+                    width:    nb.w,
+                    height:   nb.h,
+                    center_x: nb.newCx,
+                    center_y: nb.newCy,
                 }, '*');
 
                 resizeHandle = null;
@@ -2458,11 +2488,11 @@
             if (!overlay) return;
             overlay.removeAttribute('pointer-events'); // allow child events
 
-            var ns = 'http://www.w3.org/2000/svg';
+            var ns  = 'http://www.w3.org/2000/svg';
             var pad = 4 / currentZoom;
             var x = bbox.x - pad, y = bbox.y - pad;
             var w = bbox.width + pad * 2, h = bbox.height + pad * 2;
-            var r  = HANDLE_PX / currentZoom;
+            var hs = HANDLE_PX * 0.8 / currentZoom; // half-size of each handle rect
             var sw = 2 / currentZoom;
 
             // Selection rect (dashed, non-interactive)
@@ -2482,23 +2512,27 @@
             drag.setAttribute('data-handle', handle);
             overlay.appendChild(drag);
 
-            // Corner resize handles (NW, NE, SW, SE)
-            var corners = [
-                { cx: x,   cy: y,   corner: 'nw', cursor: 'nwse-resize' },
-                { cx: x+w, cy: y,   corner: 'ne', cursor: 'nesw-resize' },
-                { cx: x,   cy: y+h, corner: 'sw', cursor: 'nesw-resize' },
-                { cx: x+w, cy: y+h, corner: 'se', cursor: 'nwse-resize' },
+            // 8 resize handles: 4 corners + 4 edge midpoints
+            var handles = [
+                { hx: x,     hy: y,     corner: 'nw', cursor: 'nwse-resize' },
+                { hx: x+w,   hy: y,     corner: 'ne', cursor: 'nesw-resize' },
+                { hx: x,     hy: y+h,   corner: 'sw', cursor: 'nesw-resize' },
+                { hx: x+w,   hy: y+h,   corner: 'se', cursor: 'nwse-resize' },
+                { hx: x+w/2, hy: y,     corner: 'tm', cursor: 'n-resize'    },
+                { hx: x+w/2, hy: y+h,   corner: 'bm', cursor: 's-resize'    },
+                { hx: x,     hy: y+h/2, corner: 'lm', cursor: 'w-resize'    },
+                { hx: x+w,   hy: y+h/2, corner: 'rm', cursor: 'e-resize'    },
             ];
-            corners.forEach(function(c) {
-                var circle = document.createElementNS(ns, 'circle');
-                circle.setAttribute('class', 'edit-corner-handle');
-                circle.setAttribute('cx', c.cx); circle.setAttribute('cy', c.cy);
-                circle.setAttribute('r', r);
-                circle.style.strokeWidth = (1.5 / currentZoom) + 'px';
-                circle.style.cursor = c.cursor;
-                circle.setAttribute('data-corner', c.corner);
-                circle.setAttribute('data-handle', handle);
-                overlay.appendChild(circle);
+            handles.forEach(function(c) {
+                var hrect = document.createElementNS(ns, 'rect');
+                hrect.setAttribute('class', 'edit-resize-handle');
+                hrect.setAttribute('x', c.hx - hs);  hrect.setAttribute('y', c.hy - hs);
+                hrect.setAttribute('width',  hs * 2); hrect.setAttribute('height', hs * 2);
+                hrect.style.strokeWidth = (1.5 / currentZoom) + 'px';
+                hrect.style.cursor = c.cursor;
+                hrect.setAttribute('data-corner', c.corner);
+                hrect.setAttribute('data-handle', handle);
+                overlay.appendChild(hrect);
             });
         }
 
@@ -2512,28 +2546,41 @@
         function updateOverlayScale() {
             var overlay = document.getElementById('edit-overlay');
             if (!overlay || !overlay.hasChildNodes()) return;
-            var r  = HANDLE_PX / currentZoom;
-            var sw = 1.5 / currentZoom;
-            overlay.querySelectorAll('.edit-corner-handle').forEach(function(h) {
-                h.setAttribute('r', r);
-                h.style.strokeWidth = sw + 'px';
-            });
+
+            var pad = 4 / currentZoom;
+            var hs  = HANDLE_PX * 0.8 / currentZoom;
+            var sw  = 1.5 / currentZoom;
+
             var selRect = overlay.querySelector('.edit-sel-rect');
             if (selRect) {
                 selRect.style.strokeWidth = (2 / currentZoom) + 'px';
                 selRect.style.strokeDasharray = (6 / currentZoom) + ' ' + (3 / currentZoom);
             }
-            // Keep drag area padding consistent
-            var pad = 4 / currentZoom;
+
             var bbox = selectedHandle ? getSymbolBbox(selectedHandle) : null;
             if (bbox) {
+                var x = bbox.x - pad, y = bbox.y - pad;
+                var w = bbox.width + pad * 2, h = bbox.height + pad * 2;
+
                 var drag = overlay.querySelector('.edit-drag-area');
                 if (drag) {
-                    drag.setAttribute('x', bbox.x - pad);
-                    drag.setAttribute('y', bbox.y - pad);
-                    drag.setAttribute('width',  bbox.width  + pad * 2);
-                    drag.setAttribute('height', bbox.height + pad * 2);
+                    drag.setAttribute('x', x);     drag.setAttribute('y', y);
+                    drag.setAttribute('width', w);  drag.setAttribute('height', h);
                 }
+
+                var hpos = {
+                    nw: { hx: x,     hy: y     }, ne: { hx: x+w,   hy: y     },
+                    sw: { hx: x,     hy: y+h   }, se: { hx: x+w,   hy: y+h   },
+                    tm: { hx: x+w/2, hy: y     }, bm: { hx: x+w/2, hy: y+h   },
+                    lm: { hx: x,     hy: y+h/2 }, rm: { hx: x+w,   hy: y+h/2 },
+                };
+                overlay.querySelectorAll('.edit-resize-handle').forEach(function(h) {
+                    var p = hpos[h.getAttribute('data-corner')];
+                    if (!p) return;
+                    h.setAttribute('x', p.hx - hs);  h.setAttribute('y', p.hy - hs);
+                    h.setAttribute('width', hs * 2);  h.setAttribute('height', hs * 2);
+                    h.style.strokeWidth = sw + 'px';
+                });
             }
         }
 

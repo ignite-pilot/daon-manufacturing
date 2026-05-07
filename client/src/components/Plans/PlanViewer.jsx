@@ -208,6 +208,7 @@ export default function PlanViewer({ planId }) {
           // 드래그·리사이즈는 DB에 즉시 저장하지 않는다.
           // [저장] 클릭 시 편집 패널 폼 값(이 업데이트를 반영한)이 한꺼번에 저장됨.
           // [취소] 클릭 시 iframe이 시각을 원복하고 아래 로컬 state도 원복된다.
+          // edge 핸들 리사이즈는 center_x/y 도 변경되므로 null-safe merge 사용.
           const handle = msg.handle;
           setSelectedSymbol(prev => {
             if (!prev || prev.handle !== handle) return prev;
@@ -217,10 +218,10 @@ export default function PlanViewer({ planId }) {
               data: {
                 ...prevData,
                 handle,
-                center_x: msg.type === 'SYMBOL_MOVED'   ? msg.center_x : (prevData.center_x ?? null),
-                center_y: msg.type === 'SYMBOL_MOVED'   ? msg.center_y : (prevData.center_y ?? null),
-                width:    msg.type === 'SYMBOL_RESIZED' ? msg.width    : (prevData.width    ?? null),
-                height:   msg.type === 'SYMBOL_RESIZED' ? msg.height   : (prevData.height   ?? null),
+                center_x: msg.center_x != null ? msg.center_x : (prevData.center_x ?? null),
+                center_y: msg.center_y != null ? msg.center_y : (prevData.center_y ?? null),
+                width:    msg.width    != null ? msg.width    : (prevData.width    ?? null),
+                height:   msg.height   != null ? msg.height   : (prevData.height   ?? null),
               },
             };
           });
