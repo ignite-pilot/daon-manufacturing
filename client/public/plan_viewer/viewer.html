@@ -491,6 +491,12 @@
             filter: drop-shadow(0 0 5px rgba(255,255,255,0.65));
             cursor: pointer;
         }
+        /* BUFFER: 속이 빈 윤곽선 심볼은 내부를 반투명 흰색으로 채워 시인성 확보 */
+        #cat-BUFFER [data-hovered="true"] {
+            fill: rgba(255, 255, 255, 0.22) !important;
+            filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.85));
+            cursor: pointer;
+        }
         /* edit-selected takes priority over hover */
         [data-edit-selected="true"][data-hovered="true"] {
             filter: drop-shadow(0 0 4px #FFD700);
@@ -1605,10 +1611,10 @@
         // ---- Hover Highlight ----
         function clearHover() {
             if (!hoveredHandle) return;
-            var prev = svgDoc
-                ? svgDoc.querySelector('[data-handle="' + hoveredHandle + '"][data-hovered="true"]')
-                : null;
-            if (prev) prev.removeAttribute('data-hovered');
+            if (svgDoc) {
+                svgDoc.querySelectorAll('[data-handle="' + hoveredHandle + '"][data-hovered="true"]')
+                    .forEach(function(e) { e.removeAttribute('data-hovered'); });
+            }
             hoveredHandle = null;
         }
 
@@ -1646,12 +1652,14 @@
 
                 if (handle) {
                     hoveredHandle = handle;
-                    // edit-overlay 외 첫 번째 실제 심볼 요소에 hover 적용
-                    var hoverEl = svgDoc
-                        ? Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
-                            .find(function(e) { return !e.closest('#edit-overlay'); })
-                        : null;
-                    if (hoverEl) hoverEl.setAttribute('data-hovered', 'true');
+                    // edit-overlay 외 모든 심볼 요소에 hover 적용 (multi-path 심볼 전체 강조)
+                    if (svgDoc) {
+                        svgDoc.querySelectorAll('[data-handle="' + handle + '"]')
+                            .forEach(function(e) {
+                                if (!e.closest('#edit-overlay'))
+                                    e.setAttribute('data-hovered', 'true');
+                            });
+                    }
                 }
             });
 
