@@ -42,6 +42,7 @@ function toFormCoords(d) {
  */
 export default function SymbolEditPanel({
   symbol,
+  hasOverride    = false,
   facilityLegend = [],
   annotations    = [],
   onClose,
@@ -126,7 +127,6 @@ export default function SymbolEditPanel({
     };
   }
 
-  const hasOverride = !!symbol.data;
   const busy = saving || deleting;
 
   return (

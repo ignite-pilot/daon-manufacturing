@@ -1800,8 +1800,18 @@
             // Draw selection overlay
             drawSelectionOverlay(handle);
 
-            // Notify parent React component
-            window.parent.postMessage({ type: 'EDIT_MODE_ENTERED', handle: handle }, '*');
+            // Notify parent React component (include visual bbox for form default values)
+            var _bbox = getSymbolBbox(handle);
+            window.parent.postMessage({
+                type:   'EDIT_MODE_ENTERED',
+                handle: handle,
+                bbox:   _bbox ? {
+                    center_x: parseFloat((_bbox.x + _bbox.width  / 2).toFixed(2)),
+                    center_y: parseFloat((_bbox.y + _bbox.height / 2).toFixed(2)),
+                    width:    parseFloat(_bbox.width.toFixed(2)),
+                    height:   parseFloat(_bbox.height.toFixed(2)),
+                } : null,
+            }, '*');
         }
 
         // revert=true: revert SVG visuals to pre-edit state (for cancel).

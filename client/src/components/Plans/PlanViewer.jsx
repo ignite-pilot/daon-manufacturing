@@ -174,17 +174,30 @@ export default function PlanViewer({ planId }) {
       switch (msg.type) {
         case 'SYMBOL_CLICKED':
           setSelectedSymbol({
-            handle:      msg.handle,
-            data:        msg.data        ?? null,
-            svgCategory: msg.svgCategory ?? null,
-            svgFacility: msg.svgFacility ?? null,
+            handle:            msg.handle,
+            data:              msg.data        ?? null,
+            hasServerOverride: msg.data != null,
+            svgCategory:       msg.svgCategory ?? null,
+            svgFacility:       msg.svgFacility ?? null,
           });
           break;
-        case 'EDIT_MODE_ENTERED':
+        case 'EDIT_MODE_ENTERED': {
+          // bbox: viewer가 계산한 현재 시각적 위치·크기 (override 미설정 필드의 기본값)
+          const { bbox } = msg;
+          const prevData = selectedSymbolRef.current?.data ?? null;
+          const filledData = bbox ? {
+            ...(prevData ?? {}),
+            center_x: prevData?.center_x ?? bbox.center_x,
+            center_y: prevData?.center_y ?? bbox.center_y,
+            width:    prevData?.width    ?? bbox.width,
+            height:   prevData?.height   ?? bbox.height,
+          } : prevData;
+          editStartDataRef.current = filledData;
+          setSelectedSymbol(prev => prev ? { ...prev, data: filledData } : prev);
           setIsEditMode(true);
           setContextMenu(null);
-          editStartDataRef.current = selectedSymbolRef.current?.data ?? null;
           break;
+        }
         case 'EDIT_MODE_EXITED':
           setIsEditMode(false);
           setContextMenu(null);
@@ -316,7 +329,9 @@ export default function PlanViewer({ planId }) {
     }
     const saved = await res.json();
     setSelectedSymbol(prev =>
-      prev?.handle === saved.handle ? { ...prev, data: saved } : prev
+      prev?.handle === saved.handle
+        ? { ...prev, data: saved, hasServerOverride: true }
+        : prev
     );
     editStartDataRef.current = null;
     // EXIT_EDIT(원복 없음) → iframe overlay 클리어 + editMode 종료
@@ -340,7 +355,9 @@ export default function PlanViewer({ planId }) {
       throw new Error(err?.error || `HTTP ${res.status}`);
     }
     setSelectedSymbol(prev =>
-      prev?.handle === handle ? { ...prev, data: null } : prev
+      prev?.handle === handle
+        ? { ...prev, data: null, hasServerOverride: false }
+        : prev
     );
     sendToIframe({ type: 'SYMBOL_OVERRIDE_DELETED', handle });
   }, [planId, sendToIframe]);
@@ -477,6 +494,7 @@ export default function PlanViewer({ planId }) {
           {isEditMode && selectedSymbol && (
             <SymbolEditPanel
               symbol={selectedSymbol}
+              hasOverride={selectedSymbol?.hasServerOverride ?? false}
               facilityLegend={facilityLegend}
               annotations={annotations}
               onClose={handleCloseEditPanel}
