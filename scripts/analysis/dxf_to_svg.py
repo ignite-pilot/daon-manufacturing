@@ -906,7 +906,7 @@ def generate_svg(entities, transform_fn, scale, categories, dxf_bbox, cfg):
         svg_elements.extend(cat_elements[""])
         svg_elements.append("</g>")
 
-    for cat_name in [CAT_BUFFER, CAT_FOOTPATH, CAT_CONVEYOR, CAT_STATION, CAT_UNDEFINED]:
+    for cat_name in [CAT_FOOTPATH, CAT_UNDEFINED, CAT_BUFFER, CAT_CONVEYOR, CAT_STATION]:
         if cat_name in cat_elements:
             svg_elements.append(f'<g id="cat-{cat_name}">')
             svg_elements.extend(cat_elements[cat_name])
@@ -974,6 +974,8 @@ def entity_to_svg(e, tf, scale, texts_list):
             fill, sw = "rgba(33,150,243,0.15)", 1.5
         elif cat == CAT_STATION:
             sw = 1.5
+        elif cat == CAT_BUFFER and e.get("closed"):
+            fill = "transparent"  # hit-testable interior; "none" would block clicks
         return (f'<{tag} points="{pstr}" stroke="{color}" stroke-width="{sw}" '
                 f'fill="{fill}" data-handle="{handle}"{cat_a}{fac_a}/>')
 
