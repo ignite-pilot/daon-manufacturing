@@ -227,6 +227,20 @@ export default function PlanViewer({ planId }) {
           break;
         }
 
+        case 'SYMBOL_COORDS_CHANGED': {
+          // undo/redo 후 폼 좌표 동기화
+          const { handle: cHandle, center_x, center_y, width, height } = msg;
+          setSelectedSymbol(prev => {
+            if (!prev || prev.handle !== cHandle) return prev;
+            const prevData = prev.data ?? {};
+            return {
+              ...prev,
+              data: { ...prevData, handle: cHandle, center_x, center_y, width, height },
+            };
+          });
+          break;
+        }
+
         default:
           break;
       }
@@ -252,15 +266,26 @@ export default function PlanViewer({ planId }) {
   }, [sendToIframe]);
 
   // 편집 모드 중 SymbolEditPanel이 포커스를 가져가면 iframe의 keydown이 동작하지 않으므로
-  // 부모 창에서도 ESC를 감지해 EXIT_EDIT 전송
+  // 부모 창에서도 ESC / Ctrl+Z / Ctrl+Y 를 감지해 iframe으로 전달
   useEffect(() => {
     if (!isEditMode) return;
     function onKeyDown(ev) {
-      if (ev.key === 'Escape') handleCloseEditPanel();
+      if (ev.key === 'Escape') { handleCloseEditPanel(); return; }
+      const mod = ev.ctrlKey || ev.metaKey;
+      if (!mod) return;
+      const tag = ev.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (ev.key === 'z' || ev.key === 'Z') {
+        ev.preventDefault();
+        sendToIframe({ type: 'UNDO' });
+      } else if (ev.key === 'y' || ev.key === 'Y') {
+        ev.preventDefault();
+        sendToIframe({ type: 'REDO' });
+      }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isEditMode, handleCloseEditPanel]);
+  }, [isEditMode, handleCloseEditPanel, sendToIframe]);
 
   /** 컨텍스트 메뉴 닫기 */
   const handleCloseContextMenu = useCallback(() => setContextMenu(null), []);

@@ -1590,6 +1590,9 @@
             // Setup resize (corner handle drag)
             setupResize();
 
+            // Setup undo/redo (Ctrl+Z / Ctrl+Y)
+            setupUndoRedo();
+
             // Setup context menu (right-click on symbol)
             setupContextMenu();
 
@@ -1708,6 +1711,9 @@
         var symbolOverrideMap = {};
         // Snapshot of symbolOverrideMap[handle] taken at enterEditMode (null = no prior override)
         var editStartOv = undefined;
+        // Edit-session-scoped undo/redo stacks
+        var undoStack = [];
+        var redoStack = [];
 
         function applySymbolOverrides() {
             var overrides = svgMetadata.symbolOverrides;
@@ -1780,6 +1786,8 @@
             // Snapshot pre-edit override so EXIT_EDIT_CANCEL can revert visuals
             var cur = symbolOverrideMap[handle];
             editStartOv = cur ? JSON.parse(JSON.stringify(cur)) : null;
+            undoStack = [];
+            redoStack = [];
 
             document.body.classList.add('edit-mode');
             // Remove inline cursor so CSS body.edit-mode takes over
@@ -1843,8 +1851,88 @@
                 }
             }
             editStartOv = undefined;
+            undoStack = [];
+            redoStack = [];
 
             window.parent.postMessage({ type: 'EDIT_MODE_EXITED' }, '*');
+        }
+
+        // ---- Undo / Redo ----
+
+        function captureCoordState(handle) {
+            var ov = symbolOverrideMap[handle];
+            if (!ov) return null;
+            var cx = ov.center_x != null ? ov.center_x : null;
+            var cy = ov.center_y != null ? ov.center_y : null;
+            var w  = ov.width    != null ? ov.width    : null;
+            var h  = ov.height   != null ? ov.height   : null;
+            if (cx === null && cy === null && w === null && h === null) return null;
+            return { center_x: cx, center_y: cy, width: w, height: h };
+        }
+
+        function applyHistoryState(handle, state) {
+            var ov;
+            if (state === null) {
+                ov = symbolOverrideMap[handle];
+                if (ov) { delete ov.center_x; delete ov.center_y; delete ov.width; delete ov.height; }
+                var hEls = svgDoc
+                    ? Array.from(svgDoc.querySelectorAll('[data-handle="' + handle + '"]'))
+                        .filter(function(e) { return !e.closest('#edit-overlay'); })
+                    : [];
+                hEls.forEach(function(el) { el.removeAttribute('transform'); });
+            } else {
+                if (!symbolOverrideMap[handle]) symbolOverrideMap[handle] = { handle: handle };
+                ov = symbolOverrideMap[handle];
+                if (state.center_x != null) ov.center_x = state.center_x; else delete ov.center_x;
+                if (state.center_y != null) ov.center_y = state.center_y; else delete ov.center_y;
+                if (state.width    != null) ov.width    = state.width;    else delete ov.width;
+                if (state.height   != null) ov.height   = state.height;   else delete ov.height;
+                applySymbolTransform(handle, ov);
+            }
+            if (selectedHandle === handle) drawSelectionOverlay(handle);
+            ov = symbolOverrideMap[handle];
+            window.parent.postMessage({
+                type:     'SYMBOL_COORDS_CHANGED',
+                handle:   handle,
+                center_x: ov && ov.center_x != null ? ov.center_x : null,
+                center_y: ov && ov.center_y != null ? ov.center_y : null,
+                width:    ov && ov.width    != null ? ov.width    : null,
+                height:   ov && ov.height   != null ? ov.height   : null,
+            }, '*');
+        }
+
+        function pushHistory(handle, before, after) {
+            undoStack.push({ handle: handle, before: before, after: after });
+            redoStack = [];
+        }
+
+        function undo() {
+            if (!undoStack.length) return;
+            var entry = undoStack.pop();
+            redoStack.push(entry);
+            applyHistoryState(entry.handle, entry.before);
+        }
+
+        function redo() {
+            if (!redoStack.length) return;
+            var entry = redoStack.pop();
+            undoStack.push(entry);
+            applyHistoryState(entry.handle, entry.after);
+        }
+
+        function setupUndoRedo() {
+            document.addEventListener('keydown', function(ev) {
+                if (!editMode) return;
+                var mod = ev.ctrlKey || ev.metaKey;
+                if (!mod) return;
+                if (ev.key === 'z' || ev.key === 'Z') {
+                    ev.preventDefault();
+                    undo();
+                } else if (ev.key === 'y' || ev.key === 'Y') {
+                    ev.preventDefault();
+                    redo();
+                }
+            });
         }
 
         function setupEditMode() {
@@ -1899,6 +1987,7 @@
         var dragEl        = null;
         var dragStartScreenX = 0, dragStartScreenY = 0;
         var dragStartSvgCx   = 0, dragStartSvgCy   = 0;
+        var dragBeforeState  = null;
 
         function setupDrag() {
             if (!svgContainer) return;
@@ -1916,6 +2005,7 @@
                 dragEl         = null;
                 dragStartScreenX = ev.clientX;
                 dragStartScreenY = ev.clientY;
+                dragBeforeState  = captureCoordState(handle);
 
                 // Visual center at drag start (includes any prior position/size override)
                 var bbox = getSymbolBbox(handle);
@@ -1974,6 +2064,11 @@
                 if (overlay) overlay.removeAttribute('transform');
                 drawSelectionOverlay(dragHandle);
 
+                // Push to undo history
+                var dAfterState = captureCoordState(dragHandle);
+                pushHistory(dragHandle, dragBeforeState, dAfterState);
+                dragBeforeState = null;
+
                 // Notify parent to persist
                 window.parent.postMessage({
                     type: 'SYMBOL_MOVED',
@@ -1995,6 +2090,7 @@
         var resizeStartScreenX = 0, resizeStartScreenY = 0;
         var resizeCx         = 0, resizeCy = 0;  // fixed center (SVG coords)
         var resizeStartW     = 0, resizeStartH = 0;
+        var resizeBeforeState = null;
 
         var CORNER_SIGN = {
             nw: { sx: -1, sy: -1 },
@@ -2020,6 +2116,7 @@
                 resizeHandle = selectedHandle;
                 if (!resizeHandle) return;
 
+                resizeBeforeState = captureCoordState(resizeHandle);
                 resizeEl = svgDoc ? svgDoc.querySelector('[data-handle="' + resizeHandle + '"]') : null;
 
                 var bbox = getSymbolBbox(resizeHandle);
@@ -2109,6 +2206,11 @@
 
                 // Redraw overlay at committed size
                 drawSelectionOverlay(resizeHandle);
+
+                // Push to undo history
+                var rAfterState = captureCoordState(resizeHandle);
+                pushHistory(resizeHandle, resizeBeforeState, rAfterState);
+                resizeBeforeState = null;
 
                 // Notify parent to persist
                 window.parent.postMessage({
@@ -2226,6 +2328,14 @@
                     // Parent requests cancel: exit + revert visuals to pre-edit state
                     case 'EXIT_EDIT_CANCEL':
                         exitEditMode(true);
+                        break;
+
+                    case 'UNDO':
+                        undo();
+                        break;
+
+                    case 'REDO':
+                        redo();
                         break;
 
                     default:
