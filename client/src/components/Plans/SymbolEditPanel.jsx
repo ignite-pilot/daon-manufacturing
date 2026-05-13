@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { apiFetch } from '../../lib/api';
 
 const CATEGORY_OPTIONS = [
   { value: 'STATION',   label: '스테이션 (STATION)'  },
@@ -8,11 +9,15 @@ const CATEGORY_OPTIONS = [
   { value: 'UNDEFINED', label: '미분류 (UNDEFINED)'   },
 ];
 
+const WORK_CATEGORIES = new Set(['STATION', 'CONVEYOR', 'BUFFER']);
+const WORK_PAGE_SIZE  = 20;
+
 const EMPTY_FORM = {
   category:     'UNDEFINED',
   description:  '',
   legend:       '',
-  annotation_id: '',   // 5-4에서 select로 전환
+  annotation_id: '',
+  work_id:      '',
   center_x:     '',
   center_y:     '',
   width:        '',
@@ -29,16 +34,405 @@ function toFormCoords(d) {
 }
 
 /**
+ * 작업 검색·선택 컴포넌트.
+ * - 서버 페이징: GET /api/works?workName=&page=&pageSize=20
+ * - 열릴 때 1페이지 fetch, 스크롤 하단 도달 시 다음 페이지 append
+ * - 검색어 입력(300ms debounce): 1페이지부터 다시 fetch
+ * - 선택된 작업이 있을 경우 최초 1회 GET /api/works/:id 로 표시 이름 조회
+ */
+function WorkSearchSelect({ value, onChange, disabled }) {
+  const [open,         setOpen]         = useState(false);
+  const [search,       setSearch]       = useState('');
+  const [items,        setItems]        = useState([]);
+  const [total,        setTotal]        = useState(0);
+  const [loading,      setLoading]      = useState(false);
+  const [selectedWork, setSelectedWork] = useState(null);
+
+  const wrapRef     = useRef(null);
+  const inputRef    = useRef(null);
+  const listRef     = useRef(null);
+  const debounceRef = useRef(null);
+  // 스크롤 핸들러의 stale closure를 피하기 위한 refs
+  const loadingRef  = useRef(false);
+  const pageRef     = useRef(1);
+  const itemsRef    = useRef([]);
+  const totalRef    = useRef(0);
+  const searchRef   = useRef('');
+
+  // value가 있을 때 표시 이름 조회 (이미 로드된 목록에 있으면 재사용)
+  useEffect(() => {
+    if (!value) { setSelectedWork(null); return; }
+    const found = itemsRef.current.find(w => String(w.id) === value);
+    if (found) { setSelectedWork(found); return; }
+    apiFetch(`/api/works/${value}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(w => { if (w?.id) setSelectedWork(w); })
+      .catch(() => {});
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchPage(q, pageNum, append) {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        pageSize: String(WORK_PAGE_SIZE),
+        page:     String(pageNum),
+      });
+      if (q) params.set('workName', q);
+      const res = await apiFetch(`/api/works?${params}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const newItems = Array.isArray(data.items) ? data.items : [];
+      setItems(prev => {
+        const next = append ? [...prev, ...newItems] : newItems;
+        itemsRef.current = next;
+        return next;
+      });
+      totalRef.current = data.total ?? 0;
+      pageRef.current  = pageNum;
+      setTotal(data.total ?? 0);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }
+
+  // 열릴 때 초기화 + 1페이지 fetch
+  useEffect(() => {
+    if (!open) return;
+    setSearch('');
+    searchRef.current = '';
+    setItems([]);
+    itemsRef.current = [];
+    pageRef.current  = 1;
+    totalRef.current = 0;
+    fetchPage('', 1, false);
+    inputRef.current?.focus();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 검색어 입력 debounce
+  function handleSearchChange(e) {
+    const q = e.target.value;
+    setSearch(q);
+    searchRef.current = q;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setItems([]);
+      itemsRef.current = [];
+      pageRef.current  = 1;
+      fetchPage(q.trim(), 1, false);
+    }, 300);
+  }
+
+  // 스크롤 하단 → 다음 페이지 append
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    function onScroll() {
+      if (loadingRef.current) return;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
+        if (itemsRef.current.length < totalRef.current) {
+          fetchPage(searchRef.current.trim(), pageRef.current + 1, true);
+        }
+      }
+    }
+    el.addEventListener('scroll', onScroll);
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  function select(id, work) {
+    onChange(id);
+    setSelectedWork(work ?? null);
+    setOpen(false);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') setOpen(false);
+  }
+
+  const hasMore = items.length < total;
+
+  return (
+    <div ref={wrapRef} className="work-search-wrap">
+      {/* 트리거 */}
+      <button
+        type="button"
+        className={`work-search-trigger${open ? ' work-search-trigger-open' : ''}`}
+        onClick={() => !disabled && setOpen(o => !o)}
+        disabled={disabled}
+      >
+        <span className={selectedWork ? 'work-search-trigger-label' : 'work-search-trigger-placeholder'}>
+          {selectedWork
+            ? <>
+                {selectedWork.name}
+                {selectedWork.work_type && (
+                  <span className="work-search-type-badge">{selectedWork.work_type}</span>
+                )}
+              </>
+            : '연결 없음'}
+        </span>
+        <span className={`work-search-arrow${open ? ' work-search-arrow-up' : ''}`}>▾</span>
+      </button>
+
+      {/* 인라인 확장 영역 */}
+      {open && (
+        <div className="work-search-dropdown">
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={handleSearchChange}
+            onKeyDown={handleKeyDown}
+            placeholder="작업명 입력"
+            className="work-search-input"
+          />
+          <ul ref={listRef} className="work-search-list">
+            {/* 연결 없음 */}
+            <li
+              className={`work-search-item work-search-item-none${!value ? ' is-selected' : ''}`}
+              onMouseDown={() => select('', null)}
+            >
+              연결 없음
+            </li>
+
+            {items.map(w => (
+              <li
+                key={w.id}
+                className={`work-search-item${String(w.id) === value ? ' is-selected' : ''}`}
+                onMouseDown={() => select(String(w.id), w)}
+              >
+                <span className="work-search-item-name">{w.name}</span>
+                {w.work_type && <span className="work-search-type-badge">{w.work_type}</span>}
+              </li>
+            ))}
+
+            {!loading && items.length === 0 && (
+              <li className="work-search-empty">일치하는 작업이 없습니다.</li>
+            )}
+
+            {loading && (
+              <li className="work-search-loading">불러오는 중…</li>
+            )}
+
+            {!loading && hasMore && (
+              <li className="work-search-more">
+                ↓ 스크롤하여 더 보기 ({total - items.length}개 남음)
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 범례 검색·선택 컴포넌트.
+ * facility_legend 항목: { name, color, label, count }
+ * 저장 값은 name(문자열), 목록에는 색상 스워치 + 이름 + 개수 표시.
+ */
+function LegendSearchSelect({ items, value, onChange, disabled }) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapRef  = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) { setSearch(''); inputRef.current?.focus(); }
+  }, [open]);
+
+  const toName   = (item) => (typeof item === 'string' ? item : item.name) ?? '';
+  const selected = items.find(item => toName(item) === value);
+  const trimmed  = search.trim().toLowerCase();
+  const filtered = trimmed
+    ? items.filter(item => toName(item).toLowerCase().includes(trimmed))
+    : items;
+
+  function select(val) { onChange(val); setOpen(false); }
+
+  return (
+    <div ref={wrapRef} className="work-search-wrap">
+      <button
+        type="button"
+        className={`work-search-trigger${open ? ' work-search-trigger-open' : ''}`}
+        onClick={() => !disabled && setOpen(o => !o)}
+        disabled={disabled}
+      >
+        <span className={selected ? 'work-search-trigger-label' : 'work-search-trigger-placeholder'}>
+          {selected
+            ? <>
+                {selected.color && (
+                  <span className="legend-color-swatch" style={{ background: selected.color }} />
+                )}
+                {toName(selected)}
+              </>
+            : (value || '선택 안 함')}
+          {!selected && value && (
+            <span style={{ fontSize: '0.78em', color: '#888', marginLeft: 4 }}>(목록에 없음)</span>
+          )}
+        </span>
+        <span className={`work-search-arrow${open ? ' work-search-arrow-up' : ''}`}>▾</span>
+      </button>
+
+      {open && (
+        <div className="work-search-dropdown">
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && setOpen(false)}
+            placeholder="범례 이름 입력"
+            className="work-search-input"
+          />
+          <ul className="work-search-list">
+            <li
+              className={`work-search-item work-search-item-none${!value ? ' is-selected' : ''}`}
+              onMouseDown={() => select('')}
+            >
+              선택 안 함
+            </li>
+            {filtered.map((item, i) => {
+              const name = toName(item);
+              return (
+                <li
+                  key={i}
+                  className={`work-search-item${name === value ? ' is-selected' : ''}`}
+                  onMouseDown={() => select(name)}
+                >
+                  {item.color && (
+                    <span className="legend-color-swatch" style={{ background: item.color }} />
+                  )}
+                  <span className="work-search-item-name">{name}</span>
+                  {item.count != null && (
+                    <span className="work-search-type-badge">{item.count}</span>
+                  )}
+                </li>
+              );
+            })}
+            {filtered.length === 0 && (
+              <li className="work-search-empty">일치하는 범례가 없습니다.</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 주석 검색·선택 컴포넌트.
+ * annotations는 metadata.json 기반 소규모 목록이므로 클라이언트 필터링 사용.
+ * 표시 형식: "FRT 자재보관(#1)", "라지에이터그릴(#2)" — text(#id)
+ */
+function annotationLabel(a) {
+  return `${a.text ?? '주석'}(#${a.id})`;
+}
+
+function AnnotationSearchSelect({ annotations, value, onChange, disabled }) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapRef  = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) { setSearch(''); inputRef.current?.focus(); }
+  }, [open]);
+
+  const selected = value ? annotations.find(a => String(a.id) === value) : null;
+  const trimmed  = search.trim().toLowerCase();
+  const filtered = trimmed
+    ? annotations.filter(a => annotationLabel(a).toLowerCase().includes(trimmed))
+    : annotations;
+
+  function select(id) {
+    onChange(id);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={wrapRef} className="work-search-wrap">
+      <button
+        type="button"
+        className={`work-search-trigger${open ? ' work-search-trigger-open' : ''}`}
+        onClick={() => !disabled && setOpen(o => !o)}
+        disabled={disabled}
+      >
+        <span className={selected ? 'work-search-trigger-label' : 'work-search-trigger-placeholder'}>
+          {selected ? annotationLabel(selected) : '연결 없음'}
+        </span>
+        <span className={`work-search-arrow${open ? ' work-search-arrow-up' : ''}`}>▾</span>
+      </button>
+
+      {open && (
+        <div className="work-search-dropdown">
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && setOpen(false)}
+            placeholder="주석 이름 입력"
+            className="work-search-input"
+          />
+          <ul className="work-search-list">
+            <li
+              className={`work-search-item work-search-item-none${!value ? ' is-selected' : ''}`}
+              onMouseDown={() => select('')}
+            >
+              연결 없음
+            </li>
+            {filtered.map(a => (
+              <li
+                key={a.id}
+                className={`work-search-item${String(a.id) === value ? ' is-selected' : ''}`}
+                onMouseDown={() => select(String(a.id))}
+              >
+                <span className="work-search-item-name">{annotationLabel(a)}</span>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="work-search-empty">일치하는 주석이 없습니다.</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * 도면 뷰어 우측 overlay 편집 패널.
  * isEditMode && selectedSymbol 일 때 렌더된다.
- *
- * props:
- *   symbol      — selectedSymbol state
- *   facilityLegend — 범례 목록 (5-4에서 전달); 현재는 []
- *   annotations    — 주석 목록 (5-4에서 전달); 현재는 []
- *   onClose  — 닫기 (handleCloseEditPanel)
- *   onSave   — 저장 (handleSymbolSave) — 5-5에서 연결
- *   onDelete — 삭제 (handleSymbolDelete) — 5-5에서 연결
  */
 export default function SymbolEditPanel({
   symbol,
@@ -54,7 +448,6 @@ export default function SymbolEditPanel({
   const [deleting, setDeleting] = useState(false);
   const [error,    setError]    = useState(null);
 
-  // handle이 바뀌면 전체 리셋; data만 바뀌면 좌표만 업데이트 (편집 중인 텍스트 보존)
   const prevHandleRef = useRef(null);
   useEffect(() => {
     if (!symbol) { prevHandleRef.current = null; return; }
@@ -64,15 +457,15 @@ export default function SymbolEditPanel({
 
     if (handleChanged) {
       setForm({
-        category:     d?.category    || symbol.svgCategory || 'UNDEFINED',
-        description:  d?.description ?? '',
-        legend:       d?.legend      ?? (symbol.svgFacility || ''),
+        category:      d?.category    || symbol.svgCategory || 'UNDEFINED',
+        description:   d?.description ?? '',
+        legend:        d?.legend      ?? (symbol.svgFacility || ''),
         annotation_id: d?.annotation_id != null ? String(d.annotation_id) : '',
+        work_id:       d?.work_id != null ? String(d.work_id) : '',
         ...toFormCoords(d),
       });
       setError(null);
     } else {
-      // 드래그·리사이즈 자동저장으로 인한 data 업데이트 → 좌표만 반영
       setForm(prev => ({ ...prev, ...toFormCoords(d) }));
     }
   }, [symbol?.handle, symbol?.data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -120,6 +513,7 @@ export default function SymbolEditPanel({
       legend:        form.legend.trim()         || null,
       annotation_id: form.annotation_id !== ''
         ? parseInt(form.annotation_id, 10) : null,
+      work_id:       form.work_id !== '' ? parseInt(form.work_id, 10) : null,
       center_x: form.center_x !== '' ? parseFloat(form.center_x) : null,
       center_y: form.center_y !== '' ? parseFloat(form.center_y) : null,
       width:    form.width    !== '' ? parseFloat(form.width)    : null,
@@ -163,20 +557,13 @@ export default function SymbolEditPanel({
         {/* 범례 */}
         <section className="symbol-edit-section">
           <h3 className="symbol-edit-section-title">범례</h3>
-          {/* 5-4에서 facilityLegend 목록이 오면 <select>로 전환 */}
           {facilityLegend.length > 0 ? (
-            <select
-              name="legend"
+            <LegendSearchSelect
+              items={facilityLegend}
               value={form.legend}
-              onChange={handleChange}
-              className="symbol-edit-input symbol-edit-select"
+              onChange={(val) => { setForm(prev => ({ ...prev, legend: val })); setError(null); }}
               disabled={busy}
-            >
-              <option value="">— 선택 안 함 —</option>
-              {facilityLegend.map((item, i) => (
-                <option key={i} value={item.name ?? item}>{item.name ?? item}</option>
-              ))}
-            </select>
+            />
           ) : (
             <input
               type="text" name="legend" value={form.legend}
@@ -200,24 +587,31 @@ export default function SymbolEditPanel({
           />
         </section>
 
-        {/* 주석 — 5-4에서 annotations 목록이 오면 <select>로 전환 */}
+        {/* 주석 */}
         {annotations.length > 0 && (
           <section className="symbol-edit-section">
             <h3 className="symbol-edit-section-title">주석</h3>
-            <select
-              name="annotation_id"
+            <AnnotationSearchSelect
+              annotations={annotations}
               value={form.annotation_id}
-              onChange={handleChange}
-              className="symbol-edit-input symbol-edit-select"
+              onChange={(id) => { setForm(prev => ({ ...prev, annotation_id: id })); setError(null); }}
               disabled={busy}
-            >
-              <option value="">— 연결 없음 —</option>
-              {annotations.map(a => (
-                <option key={a.id} value={String(a.id)}>
-                  {a.title ?? `주석 #${a.id}`}
-                </option>
-              ))}
-            </select>
+            />
+          </section>
+        )}
+
+        {/* 연결된 작업 — STATION / CONVEYOR / BUFFER 전용 */}
+        {WORK_CATEGORIES.has(form.category) && (
+          <section className="symbol-edit-section">
+            <h3 className="symbol-edit-section-title">연결된 작업</h3>
+            <p className="symbol-edit-hint" style={{ marginTop: 0, marginBottom: '0.25rem' }}>
+              이 설비를 사용하는 작업 정보를 연결하세요.
+            </p>
+            <WorkSearchSelect
+              value={form.work_id}
+              onChange={(id) => { setForm(prev => ({ ...prev, work_id: id })); setError(null); }}
+              disabled={busy}
+            />
           </section>
         )}
 

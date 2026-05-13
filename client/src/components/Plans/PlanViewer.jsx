@@ -255,6 +255,12 @@ export default function PlanViewer({ planId }) {
           break;
         }
 
+        case 'FACILITY_LEGEND':
+          if (Array.isArray(msg.items) && msg.items.length > 0) {
+            setFacilityLegend(msg.items);
+          }
+          break;
+
         default:
           break;
       }
@@ -370,7 +376,7 @@ export default function PlanViewer({ planId }) {
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (cancelled || !data) return;
-        if (Array.isArray(data.facilityLegend)) setFacilityLegend(data.facilityLegend);
+        if (Array.isArray(data.facilityLegend) && data.facilityLegend.length > 0) setFacilityLegend(data.facilityLegend);
         if (Array.isArray(data.annotations))    setAnnotations(data.annotations);
       })
       .catch(() => {});

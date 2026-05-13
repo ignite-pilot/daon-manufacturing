@@ -31,7 +31,10 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\daon-manufacturing\" -Force)",
       "Bash(Select-Object Name, Mode)",
       "Bash(xargs wc -l)",
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\PS-Simulation1\\\\backend\" -Recurse -Force | Where-Object { $_.PSIsContainer -eq $false } | Select-Object FullName | Format-Table -AutoSize)"
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\PS-Simulation1\\\\backend\" -Recurse -Force | Where-Object { $_.PSIsContainer -eq $false } | Select-Object FullName | Format-Table -AutoSize)",
+      "Bash(Get-ChildItem -Recurse \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\daon-manufacturing\\\\src\\\\app\\\\api\" -Filter \"*.ts\")",
+      "Bash(Select-Object FullName)",
+      "Read(//tmp/**)"
     ]
   }
 }

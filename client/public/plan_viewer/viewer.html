@@ -1604,6 +1604,23 @@
             // Listen for messages from parent React component
             setupMessageListener();
 
+            // Send facility legend items to parent React app
+            var legendItems = [];
+            document.querySelectorAll('#legend-panel .legend-item').forEach(function(item) {
+                var colorEl = item.querySelector('.legend-color');
+                var labelEl = item.querySelector('.legend-label');
+                if (!colorEl || !labelEl) return;
+                var color = colorEl.style.background || colorEl.style.backgroundColor || '';
+                var fullText = labelEl.textContent.trim();
+                var countMatch = fullText.match(/\s*\((\d+)\)$/);
+                var count = countMatch ? parseInt(countMatch[1]) : 0;
+                var label = countMatch ? fullText.slice(0, fullText.length - countMatch[0].length).trim() : fullText;
+                legendItems.push({ name: label, label: label, color: color, count: count });
+            });
+            if (legendItems.length > 0) {
+                window.parent.postMessage({ type: 'FACILITY_LEGEND', items: legendItems }, '*');
+            }
+
             // Initial fit
             setTimeout(fitToScreen, 100);
         }

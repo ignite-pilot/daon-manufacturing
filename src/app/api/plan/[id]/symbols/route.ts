@@ -18,9 +18,11 @@ interface OverrideRow {
   height: number | null;
   legend: string | null;
   annotation_id: number | null;
+  work_id: number | null;
   updated_at: string;
   updated_by: string | null;
 }
+
 
 // ── S3/MinIO ──────────────────────────────────────────────────────────────────
 const REGION           = process.env.AWS_REGION       || 'ap-northeast-2';
@@ -93,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     const overrides = await query<OverrideRow[]>(
       `SELECT id, handle, category, description,
               center_x, center_y, width, height,
-              legend, annotation_id, updated_at, updated_by
+              legend, annotation_id, work_id, updated_at, updated_by
        FROM plan_symbol_overrides
        WHERE plan_id = ?
        ORDER BY id ASC`,
@@ -108,15 +110,17 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     if (metaText) {
       try {
         const raw = JSON.parse(metaText);
-        if (Array.isArray(raw.facilityLegend)) facilityLegend = raw.facilityLegend;
-        if (Array.isArray(raw.annotations))    annotations    = raw.annotations;
+        // Python 분석 스크립트는 facility_legend(snake_case)로 저장
+        if (Array.isArray(raw.facility_legend)) facilityLegend = raw.facility_legend;
+        else if (Array.isArray(raw.facilityLegend)) facilityLegend = raw.facilityLegend;
+        if (Array.isArray(raw.annotations)) annotations = raw.annotations;
       } catch {
         // metadata.json 파싱 실패 → 빈 배열 유지
       }
     }
 
     return NextResponse.json({
-      symbols:       Array.isArray(overrides) ? overrides : [],
+      symbols: Array.isArray(overrides) ? overrides : [],
       facilityLegend,
       annotations,
     });
@@ -146,7 +150,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     }
 
     const body = await req.json();
-    const { handle, category, description, center_x, center_y, width, height, legend, annotation_id } = body;
+    const { handle, category, description, center_x, center_y, width, height, legend, annotation_id, work_id } = body;
 
     if (!handle || typeof handle !== 'string') {
       return NextResponse.json({ error: 'handle 은 필수입니다.' }, { status: 400 });
@@ -160,8 +164,8 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
 
     await query(
       `INSERT INTO plan_symbol_overrides
-         (plan_id, handle, category, description, center_x, center_y, width, height, legend, annotation_id, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (plan_id, handle, category, description, center_x, center_y, width, height, legend, annotation_id, work_id, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          category      = VALUES(category),
          description   = VALUES(description),
@@ -171,6 +175,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
          height        = VALUES(height),
          legend        = VALUES(legend),
          annotation_id = VALUES(annotation_id),
+         work_id       = VALUES(work_id),
          updated_by    = VALUES(updated_by)`,
       [
         id,
@@ -183,6 +188,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
         height     != null ? Number(height)        : null,
         legend     != null ? String(legend)        : null,
         annotation_id != null ? Number(annotation_id) : null,
+        work_id    != null ? Number(work_id)       : null,
         updatedBy,
       ]
     );
@@ -191,7 +197,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     const rows = await query<OverrideRow[]>(
       `SELECT id, handle, category, description,
               center_x, center_y, width, height,
-              legend, annotation_id, updated_at, updated_by
+              legend, annotation_id, work_id, updated_at, updated_by
        FROM plan_symbol_overrides
        WHERE plan_id = ? AND handle = ?`,
       [id, handle.trim()]
