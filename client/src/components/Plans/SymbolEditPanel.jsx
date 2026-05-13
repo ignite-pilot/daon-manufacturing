@@ -5,11 +5,13 @@ const CATEGORY_OPTIONS = [
   { value: 'STATION',   label: '스테이션 (STATION)'  },
   { value: 'CONVEYOR',  label: '컨베이어 (CONVEYOR)' },
   { value: 'BUFFER',    label: '버퍼 (BUFFER)'        },
+  { value: 'SOURCE',    label: '소스 (SOURCE)'        },
+  { value: 'DRAIN',     label: '드레인 (DRAIN)'       },
   { value: 'FOOTPATH',  label: '통로 (FOOTPATH)'      },
   { value: 'UNDEFINED', label: '미분류 (UNDEFINED)'   },
 ];
 
-const WORK_CATEGORIES = new Set(['STATION', 'CONVEYOR', 'BUFFER']);
+const WORK_CATEGORIES = new Set(['STATION', 'CONVEYOR', 'BUFFER', 'SOURCE', 'DRAIN']);
 const WORK_PAGE_SIZE  = 20;
 
 const EMPTY_FORM = {

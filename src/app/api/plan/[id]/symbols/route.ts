@@ -155,7 +155,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     if (!handle || typeof handle !== 'string') {
       return NextResponse.json({ error: 'handle 은 필수입니다.' }, { status: 400 });
     }
-    const VALID_CATEGORIES = ['STATION', 'CONVEYOR', 'BUFFER', 'FOOTPATH', 'UNDEFINED'];
+    const VALID_CATEGORIES = ['STATION', 'CONVEYOR', 'BUFFER', 'SOURCE', 'DRAIN', 'FOOTPATH', 'UNDEFINED'];
     if (!category || !VALID_CATEGORIES.includes(category)) {
       return NextResponse.json({ error: `category 는 ${VALID_CATEGORIES.join('|')} 중 하나여야 합니다.` }, { status: 400 });
     }

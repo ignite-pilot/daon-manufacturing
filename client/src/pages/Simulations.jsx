@@ -79,12 +79,12 @@ function PlanDropdown({ plans, selectedPlan, onSelect }) {
   )
 }
 
-const COMPONENT_TYPES = ['SOURCE', 'DRAIN', 'STORAGE', 'CONVEYOR', 'STATION']
+const COMPONENT_TYPES = ['SOURCE', 'DRAIN', 'BUFFER', 'CONVEYOR', 'STATION']
 
 const TYPE_LABEL = {
   SOURCE: '소스 (Source)',
   DRAIN: '드레인 (Drain)',
-  STORAGE: '저장소 (Storage)',
+  BUFFER: '버퍼 (Buffer)',
   CONVEYOR: '컨베이어 (Conveyor)',
   STATION: '스테이션 (Station)',
 }
@@ -92,7 +92,7 @@ const TYPE_LABEL = {
 const TYPE_COLOR = {
   SOURCE:   'bg-blue-100 text-blue-800',
   DRAIN:    'bg-red-100 text-red-800',
-  STORAGE:  'bg-yellow-100 text-yellow-800',
+  BUFFER:   'bg-yellow-100 text-yellow-800',
   CONVEYOR: 'bg-green-100 text-green-800',
   STATION:  'bg-purple-100 text-purple-800',
 }
@@ -111,7 +111,7 @@ function defaultConfig(type) {
   switch (type) {
     case 'SOURCE':   return { processingTime: 1000, recoverTime: 0, maxValue: -1 }
     case 'DRAIN':    return { processingTime: 0 }
-    case 'STORAGE':  return { processingTime: 0, recoverTime: 0, storageCapacity: 10, outputMethod: 'FIFO' }
+    case 'BUFFER':   return { processingTime: 0, recoverTime: 0, storageCapacity: 10, outputMethod: 'FIFO' }
     case 'CONVEYOR': return { recoverTime: 0, conveyorLength: 1.0, conveyorSpeed: 1.0 }
     case 'STATION':  return { processingTime: 1000, recoverTime: 0 }
     default:         return {}
@@ -134,7 +134,7 @@ function ComponentFields({ type, values, onChange }) {
 
   return (
     <div className="grid grid-cols-2 gap-3">
-      {(type === 'SOURCE' || type === 'STATION' || type === 'STORAGE') && (
+      {(type === 'SOURCE' || type === 'STATION' || type === 'BUFFER') && (
         field('처리 시간 (ms)', 'processingTime', { type: 'number', min: 0 })
       )}
       {type === 'DRAIN' && (
@@ -154,7 +154,7 @@ function ComponentFields({ type, values, onChange }) {
       {type === 'SOURCE' && (
         field('최대 생성 수 (-1=무제한)', 'maxValue', { type: 'number', min: -1 })
       )}
-      {type === 'STORAGE' && (<>
+      {type === 'BUFFER' && (<>
         {field('최대 용량', 'storageCapacity', { type: 'number', min: 1 })}
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-gray-600">출력 방식</span>
@@ -464,7 +464,7 @@ export default function SimulationsPage() {
                 <p className="font-medium text-sm text-gray-800">{c.name}</p>
                 <p className="text-xs text-gray-500">처리: {c.processing_time}ms | 복구: {c.recover_time}ms</p>
                 {c.type === 'SOURCE'   && <p className="text-xs text-gray-500">최대: {c.max_value === -1 ? '무제한' : c.max_value}</p>}
-                {c.type === 'STORAGE'  && <p className="text-xs text-gray-500">용량: {c.storage_capacity} / {c.output_method}</p>}
+                {c.type === 'BUFFER'   && <p className="text-xs text-gray-500">용량: {c.storage_capacity} / {c.output_method}</p>}
                 {c.type === 'CONVEYOR' && <p className="text-xs text-gray-500">{c.conveyor_length}m @ {c.conveyor_speed}m/s</p>}
               </div>
             ))}

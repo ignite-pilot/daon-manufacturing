@@ -1,7 +1,7 @@
 export enum ComponentType {
   SOURCE = 'SOURCE',
   DRAIN = 'DRAIN',
-  STORAGE = 'STORAGE',
+  BUFFER = 'BUFFER',
   CONVEYOR = 'CONVEYOR',
   STATION = 'STATION',
 }
@@ -15,8 +15,8 @@ export interface ComponentConfig {
   processingTime?: number
   recoverTime?: number
   maxValue?: number        // SOURCE: -1 = unlimited
-  storageCapacity?: number // STORAGE
-  outputMethod?: OutputMethod // STORAGE
+  storageCapacity?: number // BUFFER
+  outputMethod?: OutputMethod // BUFFER
   conveyorLength?: number  // CONVEYOR (meters)
   conveyorSpeed?: number   // CONVEYOR (m/s)
 }

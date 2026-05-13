@@ -59,7 +59,7 @@ class SimulationManagerImpl {
         return new SimDrain(c.id, c.name, c.processing_time)
       case ComponentType.STATION:
         return new SimStation(c.id, c.name, c.processing_time, c.recover_time)
-      case ComponentType.STORAGE:
+      case ComponentType.BUFFER:
         return new SimStorage(
           c.id, c.name, c.processing_time, c.recover_time,
           c.storage_capacity, c.output_method as 'FIFO' | 'QUEUE',

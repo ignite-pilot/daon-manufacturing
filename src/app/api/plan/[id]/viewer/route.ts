@@ -160,8 +160,9 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
         const svgMeta = {
           annotations:    Array.isArray(raw.annotations) ? raw.annotations : [],
           categoryColors: raw.plantsim_legend ?? {
-            STATION: '#FF9800', CONVEYOR: '#2196F3', BUFFER: '#4CAF50',
-            FOOTPATH: '#9C27B0', UNDEFINED: '#9E9E9E',
+            STATION: '#FF9800', CONVEYOR: '#2196F3', BUFFER: '#9C27B0',
+            SOURCE: '#1976D2', DRAIN: '#F44336',
+            FOOTPATH: '#795548', UNDEFINED: '#9E9E9E',
           },
           // statsHtml: init() 에서 svgMetadata.statsHtml 이 있으면 우선 사용
           statsHtml: raw.stats
