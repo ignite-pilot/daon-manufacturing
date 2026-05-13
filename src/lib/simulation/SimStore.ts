@@ -9,6 +9,7 @@ export interface SimProjectRecord {
   id: number
   name: string
   description: string | null
+  planId: number | null  // 연결된 도면 ID
   createdAt: string
 }
 
@@ -89,12 +90,23 @@ class SimStoreImpl {
   private now() { return new Date().toISOString() }
 
   // ── Projects ─────────────────────────────────────────────────────
-  createProject(name: string, description?: string): SimProjectRecord {
+  createProject(name: string, description?: string, planId?: number): SimProjectRecord {
     const rec: SimProjectRecord = {
-      id: this.nextId('project'), name, description: description ?? null, createdAt: this.now(),
+      id: this.nextId('project'), name, description: description ?? null,
+      planId: planId ?? null, createdAt: this.now(),
     }
     this.projects.push(rec)
     return rec
+  }
+
+  getProjectByPlanId(planId: number): SimProjectRecord | undefined {
+    return this.projects.find(p => p.planId === planId)
+  }
+
+  getOrCreateProjectByPlan(planId: number, planName: string): SimProjectRecord {
+    const existing = this.getProjectByPlanId(planId)
+    if (existing) return existing
+    return this.createProject(planName, undefined, planId)
   }
 
   getProject(id: number): SimProjectRecord | undefined {

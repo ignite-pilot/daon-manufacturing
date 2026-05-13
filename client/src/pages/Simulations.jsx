@@ -1,6 +1,84 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../lib/api'
 
+// ── 도면 드롭다운 ──────────────────────────────────────────────────────
+function PlanDropdown({ plans, selectedPlan, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  function fmtDate(iso) {
+    if (!iso) return ''
+    return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-block', minWidth: 260 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', padding: '6px 10px', border: '1px solid #d1d5db',
+          borderRadius: 6, background: '#fff', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 8, textAlign: 'left',
+        }}
+      >
+        {selectedPlan ? (
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <span style={{ fontWeight: 600, fontSize: 13, color: '#1f2937' }}>{selectedPlan.name}</span>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>v{selectedPlan.version} · {fmtDate(selectedPlan.updated_at)}</span>
+          </span>
+        ) : (
+          <span style={{ fontSize: 13, color: '#9ca3af' }}>도면을 선택하세요</span>
+        )}
+        <span style={{ fontSize: 10, color: '#9ca3af', flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, zIndex: 100,
+          minWidth: '100%', background: '#fff', border: '1px solid #d1d5db',
+          borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+          marginTop: 2, maxHeight: 280, overflowY: 'auto',
+        }}>
+          {plans.length === 0 && (
+            <div style={{ padding: '10px 12px', fontSize: 13, color: '#9ca3af' }}>도면 없음</div>
+          )}
+          {plans.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => { onSelect(p); setOpen(false) }}
+              style={{
+                display: 'block', width: '100%', padding: '8px 12px',
+                background: selectedPlan?.id === p.id ? '#eff6ff' : 'transparent',
+                border: 'none', cursor: 'pointer', textAlign: 'left',
+                borderBottom: '1px solid #f3f4f6',
+              }}
+              onMouseEnter={e => { if (selectedPlan?.id !== p.id) e.currentTarget.style.background = '#f9fafb' }}
+              onMouseLeave={e => { e.currentTarget.style.background = selectedPlan?.id === p.id ? '#eff6ff' : 'transparent' }}
+            >
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#1f2937' }}>{p.name}</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                v{p.version} · {fmtDate(p.updated_at)}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const COMPONENT_TYPES = ['SOURCE', 'DRAIN', 'STORAGE', 'CONVEYOR', 'STATION']
 
 const TYPE_LABEL = {
@@ -96,9 +174,10 @@ function ComponentFields({ type, values, onChange }) {
 
 // ── 메인 페이지 ───────────────────────────────────────────────────────
 export default function SimulationsPage() {
-  // ── 프로젝트/프레임 상태 ─────────────────────────────────────────
-  const [projects, setProjects] = useState([])
-  const [selectedProject, setSelectedProject] = useState(null)
+  // ── 도면/프레임 상태 ──────────────────────────────────────────────
+  const [plans, setPlans] = useState([])
+  const [selectedPlan, setSelectedPlan] = useState(null)
+  const [selectedProject, setSelectedProject] = useState(null)  // 도면에 연결된 SimProject
   const [frames, setFrames] = useState([])
   const [selectedFrame, setSelectedFrame] = useState(null)
   const [currentSimId, setCurrentSimId] = useState(null)
@@ -121,17 +200,23 @@ export default function SimulationsPage() {
 
   const statusTimer = useRef(null)
 
-  // ── 프로젝트 로드 ────────────────────────────────────────────────
+  // ── 도면 목록 로드 ───────────────────────────────────────────────
   useEffect(() => {
-    api('/api/simulation/projects').then(setProjects).catch(() => {})
+    api('/api/plan?pageSize=100')
+      .then(data => setPlans(Array.isArray(data?.items) ? data.items : []))
+      .catch(() => {})
   }, [])
 
-  // ── 프레임 로드 ──────────────────────────────────────────────────
+  // ── 도면 선택 시 SimProject + 프레임 로드 ─────────────────────────
   useEffect(() => {
-    if (!selectedProject) { setFrames([]); setSelectedFrame(null); return }
-    api(`/api/simulation/projects/${selectedProject.id}/frames`)
-      .then(setFrames).catch(() => {})
-  }, [selectedProject])
+    if (!selectedPlan) { setSelectedProject(null); setFrames([]); setSelectedFrame(null); return }
+    api(`/api/simulation/by-plan/${selectedPlan.id}`)
+      .then(data => {
+        setSelectedProject(data?.project ?? null)
+        setFrames(Array.isArray(data?.frames) ? data.frames : [])
+      })
+      .catch(() => {})
+  }, [selectedPlan])
 
   // ── simId 설정 ───────────────────────────────────────────────────
   useEffect(() => {
@@ -166,15 +251,6 @@ export default function SimulationsPage() {
     const sec = status.autoStopTime === 0 ? '' : String(Math.floor(status.autoStopTime / 1000))
     setAutoStopSec(prev => (prev !== sec ? sec : prev))
   }, [status?.autoStopTime])
-
-  // ── 프로젝트 생성 ────────────────────────────────────────────────
-  const handleCreateProject = async () => {
-    const name = prompt('프로젝트 이름:')
-    if (!name) return
-    const p = await api('/api/simulation/projects', { method: 'POST', body: { name } })
-    setProjects(prev => [...prev, p])
-    setSelectedProject(p)
-  }
 
   // ── 프레임 생성 ──────────────────────────────────────────────────
   const handleCreateFrame = async () => {
@@ -254,7 +330,7 @@ export default function SimulationsPage() {
 
   // ── 시뮬레이션 제어 ──────────────────────────────────────────────
   const handleStart = async () => {
-    if (!currentSimId) return alert('프레임을 선택해주세요.')
+    if (!currentSimId) return alert('도면과 프레임을 선택해주세요.')
     setLoading(true)
     try {
       await api('/api/simulation/control/start', { method: 'POST', body: { simId: currentSimId } })
@@ -292,30 +368,17 @@ export default function SimulationsPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-bold text-gray-800">시뮬레이션 관리</h1>
 
-      {/* ── 프로젝트 / 프레임 ── */}
+      {/* ── 도면 / 프레임 선택 ── */}
       <section className="bg-white border rounded-lg p-4 space-y-3">
-        <h2 className="font-semibold text-gray-700">프로젝트 / 프레임 선택</h2>
+        <h2 className="font-semibold text-gray-700">도면 / 프레임 선택</h2>
         <div className="flex flex-wrap gap-4 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">프로젝트</label>
-            <div className="flex gap-2">
-              <select
-                className="border rounded px-2 py-1 text-sm min-w-[160px]"
-                value={selectedProject?.id ?? ''}
-                onChange={e => {
-                  const p = projects.find(x => x.id === Number(e.target.value))
-                  setSelectedProject(p ?? null)
-                  setSelectedFrame(null)
-                }}
-              >
-                <option value="">선택하세요</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <button
-                onClick={handleCreateProject}
-                className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
-              >+ 새 프로젝트</button>
-            </div>
+            <label className="text-xs text-gray-500">도면</label>
+            <PlanDropdown
+              plans={plans}
+              selectedPlan={selectedPlan}
+              onSelect={p => { setSelectedPlan(p); setSelectedFrame(null) }}
+            />
           </div>
 
           {selectedProject && (
