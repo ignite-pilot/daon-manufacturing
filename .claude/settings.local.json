@@ -2,7 +2,36 @@
   "permissions": {
     "allow": [
       "Bash(docker exec daon-mysql *)",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(git config *)",
+      "Bash(git tag *)",
+      "Bash(git rebase *)",
+      "Bash(git stash *)",
+      "Bash(git add *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git checkout *)",
+      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
+      "Bash(aws --version)",
+      "Bash(mc --version)",
+      "Bash(aws s3 *)",
+      "Bash(xargs grep *)",
+      "Bash(curl -s \"http://localhost:3500/api/plan/2\")",
+      "Bash(curl -s http://localhost:3500/api/plan/2/viewer)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(curl *)",
+      "Bash(aws sts get-caller-identity *)",
+      "Bash(npm run *)",
+      "Bash(npx kill-port *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\PS-Simulation1\" -Force)",
+      "Bash(Select-Object Name, Mode, LastWriteTime)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\daon-manufacturing\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(xargs wc -l)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\IGNITE_공유설비\\\\git\\\\PS-Simulation1\\\\backend\" -Recurse -Force | Where-Object { $_.PSIsContainer -eq $false } | Select-Object FullName | Format-Table -AutoSize)"
     ]
   }
 }

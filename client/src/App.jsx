@@ -17,6 +17,7 @@ import PartForm from './components/Parts/PartForm';
 import PartDetailView from './components/PartDetailView';
 import ListWithLayerPopup from './components/ListWithLayerPopup';
 import PlanPage from './pages/Plans';
+import SimulationsPage from './pages/Simulations';
 
 export default function App() {
   return (
@@ -82,6 +83,7 @@ export default function App() {
           }
         />
         <Route path="plan/*" element={<PlanPage />} />
+        <Route path="simulations/*" element={<SimulationsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
