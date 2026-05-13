@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { api } from '../lib/api'
 
 // ── 도면 드롭다운 ──────────────────────────────────────────────────────
@@ -79,14 +79,12 @@ function PlanDropdown({ plans, selectedPlan, onSelect }) {
   )
 }
 
-const COMPONENT_TYPES = ['SOURCE', 'DRAIN', 'BUFFER', 'CONVEYOR', 'STATION']
-
 const TYPE_LABEL = {
-  SOURCE: '소스 (Source)',
-  DRAIN: '드레인 (Drain)',
-  BUFFER: '버퍼 (Buffer)',
+  SOURCE:   '소스 (Source)',
+  DRAIN:    '드레인 (Drain)',
+  BUFFER:   '버퍼 (Buffer)',
   CONVEYOR: '컨베이어 (Conveyor)',
-  STATION: '스테이션 (Station)',
+  STATION:  '스테이션 (Station)',
 }
 
 const TYPE_COLOR = {
@@ -106,70 +104,8 @@ function formatTime(ms) {
   return `${min}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
 }
 
-// ── 기본 컴포넌트 폼 초기값 ───────────────────────────────────────────
-function defaultConfig(type) {
-  switch (type) {
-    case 'SOURCE':   return { processingTime: 1000, recoverTime: 0, maxValue: -1 }
-    case 'DRAIN':    return { processingTime: 0 }
-    case 'BUFFER':   return { processingTime: 0, recoverTime: 0, storageCapacity: 10, outputMethod: 'FIFO' }
-    case 'CONVEYOR': return { recoverTime: 0, conveyorLength: 1.0, conveyorSpeed: 1.0 }
-    case 'STATION':  return { processingTime: 1000, recoverTime: 0 }
-    default:         return {}
-  }
-}
-
-// ── 컴포넌트 폼 필드 ──────────────────────────────────────────────────
-function ComponentFields({ type, values, onChange }) {
-  const field = (label, key, props = {}) => (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="text-gray-600">{label}</span>
-      <input
-        className="border rounded px-2 py-1 text-sm"
-        value={values[key] ?? ''}
-        onChange={e => onChange(key, e.target.value)}
-        {...props}
-      />
-    </label>
-  )
-
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {(type === 'SOURCE' || type === 'STATION' || type === 'BUFFER') && (
-        field('처리 시간 (ms)', 'processingTime', { type: 'number', min: 0 })
-      )}
-      {type === 'DRAIN' && (
-        field('처리 시간 (ms)', 'processingTime', { type: 'number', min: 0 })
-      )}
-      {type !== 'DRAIN' && type !== 'CONVEYOR' && (
-        field('복구 시간 (ms)', 'recoverTime', { type: 'number', min: 0 })
-      )}
-      {type === 'CONVEYOR' && (<>
-        {field('복구 시간 (ms)', 'recoverTime', { type: 'number', min: 0 })}
-        {field('길이 (m)', 'conveyorLength', { type: 'number', min: 0.1, step: 0.1 })}
-        {field('속도 (m/s)', 'conveyorSpeed', { type: 'number', min: 0.1, step: 0.1 })}
-        <p className="col-span-2 text-xs text-gray-500">
-          처리 시간 = 길이/속도 × 1000 ms
-        </p>
-      </>)}
-      {type === 'SOURCE' && (
-        field('최대 생성 수 (-1=무제한)', 'maxValue', { type: 'number', min: -1 })
-      )}
-      {type === 'BUFFER' && (<>
-        {field('최대 용량', 'storageCapacity', { type: 'number', min: 1 })}
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-gray-600">출력 방식</span>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={values.outputMethod ?? 'FIFO'}
-            onChange={e => onChange('outputMethod', e.target.value)}
-          >
-            <option value="FIFO">FIFO</option>
-            <option value="QUEUE">QUEUE</option>
-          </select>
-        </label>
-      </>)}
-    </div>
-  )
+function fmt2(n) {
+  return n !== null && n !== undefined ? Number(n).toFixed(2) : null
 }
 
 // ── 메인 페이지 ───────────────────────────────────────────────────────
@@ -177,20 +113,14 @@ export default function SimulationsPage() {
   // ── 도면/프레임 상태 ──────────────────────────────────────────────
   const [plans, setPlans] = useState([])
   const [selectedPlan, setSelectedPlan] = useState(null)
-  const [selectedProject, setSelectedProject] = useState(null)  // 도면에 연결된 SimProject
+  const [selectedProject, setSelectedProject] = useState(null)
   const [frames, setFrames] = useState([])
   const [selectedFrame, setSelectedFrame] = useState(null)
   const [currentSimId, setCurrentSimId] = useState(null)
 
-  // ── 컴포넌트/플로우 상태 ─────────────────────────────────────────
-  const [components, setComponents] = useState([])
-  const [flows, setFlows] = useState([])
-
-  // ── 모달 상태 ────────────────────────────────────────────────────
-  const [addModal, setAddModal] = useState(null)     // { type }
-  const [editModal, setEditModal] = useState(null)   // component
-  const [flowModal, setFlowModal] = useState(false)
-  const [addFlowValues, setAddFlowValues] = useState({ fromId: '', toId: '', ratio: 1.0 })
+  // ── 공간 심볼 상태 ────────────────────────────────────────────────
+  const [planSymbols, setPlanSymbols] = useState([])
+  const [planSymbolsLoading, setPlanSymbolsLoading] = useState(false)
 
   // ── 시뮬레이션 제어 상태 ─────────────────────────────────────────
   const [status, setStatus] = useState(null)
@@ -207,15 +137,27 @@ export default function SimulationsPage() {
       .catch(() => {})
   }, [])
 
-  // ── 도면 선택 시 SimProject + 프레임 로드 ─────────────────────────
+  // ── 도면 선택 시 SimProject + 프레임 + 공간 심볼 로드 ────────────
   useEffect(() => {
-    if (!selectedPlan) { setSelectedProject(null); setFrames([]); setSelectedFrame(null); return }
+    if (!selectedPlan) {
+      setSelectedProject(null)
+      setFrames([])
+      setSelectedFrame(null)
+      setPlanSymbols([])
+      return
+    }
     api(`/api/simulation/by-plan/${selectedPlan.id}`)
       .then(data => {
         setSelectedProject(data?.project ?? null)
         setFrames(Array.isArray(data?.frames) ? data.frames : [])
       })
       .catch(() => {})
+
+    setPlanSymbolsLoading(true)
+    api(`/api/plan/${selectedPlan.id}/symbols/components`)
+      .then(data => setPlanSymbols(Array.isArray(data?.components) ? data.components : []))
+      .catch(() => setPlanSymbols([]))
+      .finally(() => setPlanSymbolsLoading(false))
   }, [selectedPlan])
 
   // ── simId 설정 ───────────────────────────────────────────────────
@@ -223,17 +165,6 @@ export default function SimulationsPage() {
     if (!selectedFrame) { setCurrentSimId(null); return }
     setCurrentSimId(selectedFrame.simulation_id ?? null)
   }, [selectedFrame])
-
-  // ── 컴포넌트/플로우 로드 ─────────────────────────────────────────
-  const loadComponents = useCallback(() => {
-    if (!currentSimId) return
-    api(`/api/simulation/${currentSimId}/components`).then(setComponents).catch(() => {})
-  }, [currentSimId])
-
-  useEffect(() => {
-    loadComponents()
-    setFlows([])
-  }, [loadComponents])
 
   // ── 상태 폴링 ────────────────────────────────────────────────────
   useEffect(() => {
@@ -262,70 +193,6 @@ export default function SimulationsPage() {
     })
     setFrames(prev => [...prev, f])
     setSelectedFrame(f)
-  }
-
-  // ── 컴포넌트 추가 ────────────────────────────────────────────────
-  const handleAddComponent = async (type, config) => {
-    if (!currentSimId) return
-    const name = `${TYPE_LABEL[type].split(' ')[0]} ${components.filter(c => c.type === type).length + 1}`
-    await api(`/api/simulation/${currentSimId}/components`, {
-      method: 'POST',
-      body: { name, type, ...config },
-    })
-    loadComponents()
-    setAddModal(null)
-  }
-
-  // ── 컴포넌트 수정 ────────────────────────────────────────────────
-  const handleUpdateComponent = async (comp, config) => {
-    await api(`/api/simulation/${currentSimId}/components/${comp.id}`, {
-      method: 'PUT', body: config,
-    })
-    loadComponents()
-    setEditModal(null)
-  }
-
-  // ── 컴포넌트 삭제 ────────────────────────────────────────────────
-  const handleDeleteComponent = async (compId) => {
-    if (!confirm('컴포넌트를 삭제하시겠습니까?')) return
-    await api(`/api/simulation/${currentSimId}/components/${compId}`, { method: 'DELETE' })
-    loadComponents()
-  }
-
-  // ── 플로우 추가 ──────────────────────────────────────────────────
-  const handleAddFlow = async () => {
-    const { fromId, toId, ratio } = addFlowValues
-    if (!fromId || !toId) return
-    // 로컬 상태에만 저장 (batch 적용 시 DB에 반영)
-    setFlows(prev => [...prev, { fromComponentId: fromId, toComponentId: toId, ratio: Number(ratio) }])
-    setFlowModal(false)
-    setAddFlowValues({ fromId: '', toId: '', ratio: 1.0 })
-  }
-
-  // ── 배치 적용 (컴포넌트 + 플로우 일괄 저장) ─────────────────────
-  const handleApplyBatch = async () => {
-    if (!currentSimId) return
-    setLoading(true)
-    try {
-      const result = await api(`/api/simulation/${currentSimId}/components/batch`, {
-        method: 'POST',
-        body: {
-          components: components.map(c => ({
-            id: c.id, name: c.name, type: c.type,
-            processingTime: c.processing_time, recoverTime: c.recover_time,
-            maxValue: c.max_value, storageCapacity: c.storage_capacity,
-            outputMethod: c.output_method,
-            conveyorLength: c.conveyor_length, conveyorSpeed: c.conveyor_speed,
-          })),
-          flows,
-        },
-      })
-      setComponents(result.components)
-      setFlows([])
-      alert('설정이 저장되었습니다.')
-    } finally {
-      setLoading(false)
-    }
   }
 
   // ── 시뮬레이션 제어 ──────────────────────────────────────────────
@@ -409,83 +276,66 @@ export default function SimulationsPage() {
         )}
       </section>
 
-      {/* ── 컴포넌트 설정 ── */}
+      {/* ── 공간 심볼 목록 ── */}
       <section className="bg-white border rounded-lg p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-700">컴포넌트 설정</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFlowModal(true)}
-              disabled={!currentSimId || components.length < 2}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border disabled:opacity-40"
-            >연결 추가</button>
-            <button
-              onClick={handleApplyBatch}
-              disabled={!currentSimId || loading}
-              className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40"
-            >설정 저장</button>
+        <h2 className="font-semibold text-gray-700">컴포넌트 설정</h2>
+
+        {!selectedPlan ? (
+          <p className="text-sm text-gray-400 py-2">도면을 선택하면 컴포넌트 목록이 표시됩니다.</p>
+        ) : planSymbolsLoading ? (
+          <div className="py-6 text-center space-y-2">
+            <p className="text-sm text-gray-500">불러오는 중...</p>
+            <p className="text-xs text-gray-400">도면 복잡도에 따라 오래 걸릴 수 있습니다.</p>
           </div>
-        </div>
-
-        {/* 컴포넌트 추가 버튼 */}
-        <div className="flex flex-wrap gap-2">
-          {COMPONENT_TYPES.map(type => (
-            <button
-              key={type}
-              onClick={() => setAddModal({ type })}
-              disabled={!currentSimId || isRunning}
-              className={`px-3 py-1 text-xs rounded border disabled:opacity-40 ${TYPE_COLOR[type]}`}
-            >+ {type}</button>
-          ))}
-        </div>
-
-        {/* 컴포넌트 목록 */}
-        {components.length === 0 ? (
-          <p className="text-sm text-gray-400 py-2">컴포넌트가 없습니다. 위 버튼으로 추가하세요.</p>
+        ) : planSymbols.length === 0 ? (
+          <p className="text-sm text-gray-400 py-2">
+            공간 관리에서 STATION, CONVEYOR, BUFFER, SOURCE, DRAIN 으로 분류된 심볼이 없습니다.
+          </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {components.map(c => (
-              <div key={c.id} className="border rounded p-3 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${TYPE_COLOR[c.type]}`}>{c.type}</span>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setEditModal(c)}
-                      disabled={isRunning}
-                      className="text-xs text-blue-600 hover:underline disabled:opacity-40"
-                    >수정</button>
-                    <button
-                      onClick={() => handleDeleteComponent(c.id)}
-                      disabled={isRunning}
-                      className="text-xs text-red-500 hover:underline disabled:opacity-40"
-                    >삭제</button>
-                  </div>
-                </div>
-                <p className="font-medium text-sm text-gray-800">{c.name}</p>
-                <p className="text-xs text-gray-500">처리: {c.processing_time}ms | 복구: {c.recover_time}ms</p>
-                {c.type === 'SOURCE'   && <p className="text-xs text-gray-500">최대: {c.max_value === -1 ? '무제한' : c.max_value}</p>}
-                {c.type === 'BUFFER'   && <p className="text-xs text-gray-500">용량: {c.storage_capacity} / {c.output_method}</p>}
-                {c.type === 'CONVEYOR' && <p className="text-xs text-gray-500">{c.conveyor_length}m @ {c.conveyor_speed}m/s</p>}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* 플로우 목록 */}
-        {flows.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-gray-600 mb-1">연결 (미저장)</p>
-            <div className="space-y-1">
-              {flows.map((f, i) => (
-                <div key={i} className="flex items-center justify-between text-xs bg-gray-50 px-2 py-1 rounded">
-                  <span>{f.fromComponentId} → {f.toComponentId} (비율: {f.ratio})</span>
-                  <button
-                    onClick={() => setFlows(prev => prev.filter((_, j) => j !== i))}
-                    className="text-red-500 hover:underline ml-2"
-                  >삭제</button>
-                </div>
-              ))}
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-left">
+                  <th className="border px-3 py-2 whitespace-nowrap">컴포넌트 유형</th>
+                  <th className="border px-3 py-2 whitespace-nowrap">범례</th>
+                  <th className="border px-3 py-2 whitespace-nowrap text-right">좌표 (X, Y)</th>
+                  <th className="border px-3 py-2 whitespace-nowrap text-right">크기 (너비 × 높이)</th>
+                  <th className="border px-3 py-2 whitespace-nowrap">작업명</th>
+                  <th className="border px-3 py-2 whitespace-nowrap">기계</th>
+                </tr>
+              </thead>
+              <tbody>
+                {planSymbols.map((s, i) => {
+                  const cx = fmt2(s.center_x)
+                  const cy = fmt2(s.center_y)
+                  const w  = fmt2(s.width)
+                  const h  = fmt2(s.height)
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="border px-3 py-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLOR[s.category] ?? 'bg-gray-100 text-gray-700'}`}>
+                          {TYPE_LABEL[s.category] ?? s.category}
+                        </span>
+                      </td>
+                      <td className="border px-3 py-2 text-gray-700">{s.legend ?? <span className="text-gray-300">-</span>}</td>
+                      <td className="border px-3 py-2 text-right font-mono text-xs text-gray-600">
+                        {cx !== null && cy !== null ? `(${cx}, ${cy})` : <span className="text-gray-300">-</span>}
+                      </td>
+                      <td className="border px-3 py-2 text-right font-mono text-xs text-gray-600">
+                        {w !== null && h !== null ? `${w} × ${h}` : <span className="text-gray-300">-</span>}
+                      </td>
+                      <td className="border px-3 py-2 text-gray-700">{s.work_name ?? <span className="text-gray-300">-</span>}</td>
+                      <td className="border px-3 py-2 text-gray-700">
+                        {s.machines && s.machines.length > 0
+                          ? s.machines.join(', ')
+                          : <span className="text-gray-300">-</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <p className="text-xs text-gray-400 mt-2">{planSymbols.length}개 심볼</p>
           </div>
         )}
       </section>
@@ -630,117 +480,6 @@ export default function SimulationsPage() {
           </div>
         )}
       </section>
-
-      {/* ── 컴포넌트 추가 모달 ── */}
-      {addModal && (
-        <ComponentModal
-          title={`${TYPE_LABEL[addModal.type]} 추가`}
-          type={addModal.type}
-          initialValues={defaultConfig(addModal.type)}
-          onConfirm={(config) => handleAddComponent(addModal.type, config)}
-          onCancel={() => setAddModal(null)}
-        />
-      )}
-
-      {/* ── 컴포넌트 수정 모달 ── */}
-      {editModal && (
-        <ComponentModal
-          title={`${editModal.name} 수정`}
-          type={editModal.type}
-          initialValues={{
-            processingTime: editModal.processing_time,
-            recoverTime: editModal.recover_time,
-            maxValue: editModal.max_value,
-            storageCapacity: editModal.storage_capacity,
-            outputMethod: editModal.output_method,
-            conveyorLength: editModal.conveyor_length,
-            conveyorSpeed: editModal.conveyor_speed,
-          }}
-          onConfirm={(config) => handleUpdateComponent(editModal, config)}
-          onCancel={() => setEditModal(null)}
-        />
-      )}
-
-      {/* ── 플로우 추가 모달 ── */}
-      {flowModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-sm space-y-4">
-            <h3 className="font-semibold text-gray-800">컴포넌트 연결 추가</h3>
-            <div className="space-y-3">
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-gray-600">출발 컴포넌트</span>
-                <select
-                  className="border rounded px-2 py-1 text-sm"
-                  value={addFlowValues.fromId}
-                  onChange={e => setAddFlowValues(v => ({ ...v, fromId: e.target.value }))}
-                >
-                  <option value="">선택</option>
-                  {components.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-gray-600">도착 컴포넌트</span>
-                <select
-                  className="border rounded px-2 py-1 text-sm"
-                  value={addFlowValues.toId}
-                  onChange={e => setAddFlowValues(v => ({ ...v, toId: e.target.value }))}
-                >
-                  <option value="">선택</option>
-                  {components.filter(c => c.id !== addFlowValues.fromId).map(c =>
-                    <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
-                  )}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-gray-600">비율 (0~1)</span>
-                <input
-                  type="number" min="0" max="1" step="0.1"
-                  className="border rounded px-2 py-1 text-sm"
-                  value={addFlowValues.ratio}
-                  onChange={e => setAddFlowValues(v => ({ ...v, ratio: e.target.value }))}
-                />
-              </label>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setFlowModal(false)} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">취소</button>
-              <button onClick={handleAddFlow} className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">추가</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── 컴포넌트 추가/수정 모달 ───────────────────────────────────────────
-function ComponentModal({ title, type, initialValues, onConfirm, onCancel }) {
-  const [values, setValues] = useState(initialValues)
-
-  const handleChange = (key, val) => setValues(prev => ({ ...prev, [key]: val }))
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    // 숫자 필드 변환
-    const config = { ...values }
-    ;['processingTime', 'recoverTime', 'maxValue', 'storageCapacity',
-      'conveyorLength', 'conveyorSpeed'].forEach(k => {
-      if (config[k] !== undefined && config[k] !== '') config[k] = Number(config[k])
-    })
-    onConfirm(config)
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-sm space-y-4">
-        <h3 className="font-semibold text-gray-800">{title}</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <ComponentFields type={type} values={values} onChange={handleChange} />
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">취소</button>
-            <button type="submit" className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">확인</button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }
