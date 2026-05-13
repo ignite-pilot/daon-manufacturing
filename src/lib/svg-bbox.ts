@@ -118,8 +118,8 @@ export function extractSymbolBboxes(
   }
 
   const result = new Map<string, SymbolBbox>()
-  for (const [handle, acc] of accums) {
-    if (!isFinite(acc.minX) || !isFinite(acc.minY)) continue
+  accums.forEach((acc, handle) => {
+    if (!isFinite(acc.minX) || !isFinite(acc.minY)) return
     const w = acc.maxX - acc.minX
     const h = acc.maxY - acc.minY
     result.set(handle, {
@@ -129,6 +129,6 @@ export function extractSymbolBboxes(
       height:   Math.round(h * 100) / 100,
       category: acc.category,
     })
-  }
+  })
   return result
 }
