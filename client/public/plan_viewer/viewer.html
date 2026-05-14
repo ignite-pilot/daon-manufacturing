@@ -1743,6 +1743,22 @@
         var undoStack = [];
         var redoStack = [];
 
+        // catGroup이 없으면 SVG 안에 동적 생성 후 catGroups에 등록
+        function ensureCatGroup(cat) {
+            if (catGroups[cat]) return catGroups[cat];
+            var svgRoot = svgDoc.querySelector('svg') || svgDoc;
+            var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('id', 'cat-' + cat);
+            g.setAttribute('data-cat-group', cat);
+            // 현재 activeCategory 상태에 맞게 초기 opacity 설정
+            if (activeCategory !== 'all' && activeCategory !== cat) {
+                g.style.opacity = '0.08';
+            }
+            svgRoot.appendChild(g);
+            catGroups[cat] = g;
+            return g;
+        }
+
         function applySymbolOverrides() {
             var overrides = svgMetadata.symbolOverrides;
             if (!overrides || !overrides.length) return;
@@ -1766,8 +1782,8 @@
                         var oldCat = el.getAttribute('data-plantsim-category');
                         el.setAttribute('data-plantsim-category', ov.category);
                         if (oldCat !== ov.category) {
-                            var targetGroup = catGroups[ov.category];
-                            if (targetGroup) targetGroup.appendChild(el);
+                            var targetGroup = ensureCatGroup(ov.category);
+                            targetGroup.appendChild(el);
                         }
                     }
                     // legend changed: update data-facility
@@ -2338,8 +2354,8 @@
                                 var oldCat = el.getAttribute('data-plantsim-category');
                                 el.setAttribute('data-plantsim-category', ov.category);
                                 if (oldCat !== ov.category) {
-                                    var tg = catGroups[ov.category];
-                                    if (tg) tg.appendChild(el);
+                                    var tg = ensureCatGroup(ov.category);
+                                    tg.appendChild(el);
                                 }
                             }
                             if (ov.legend != null) {
