@@ -1784,10 +1784,22 @@
 
         function recalcCategoryCounts() {
             if (!svgDoc) return;
+            var SIM_CATS = new Set(['STATION','CONVEYOR','BUFFER','SOURCE','DRAIN']);
             catGroupNames.forEach(function(cat) {
-                var count = svgDoc.querySelectorAll(
+                var els = svgDoc.querySelectorAll(
                     '[data-plantsim-category="' + cat + '"]'
-                ).length;
+                );
+                var count;
+                if (SIM_CATS.has(cat)) {
+                    var handles = new Set();
+                    els.forEach(function(el) {
+                        var h = el.getAttribute('data-handle');
+                        if (h) handles.add(h);
+                    });
+                    count = handles.size;
+                } else {
+                    count = els.length;
+                }
 
                 // Filter button: "STATION (23)" → "STATION (N)"
                 var btn = document.querySelector(
