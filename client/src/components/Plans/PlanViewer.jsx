@@ -336,13 +336,14 @@ export default function PlanViewer({ planId }) {
       throw new Error(err?.error || `HTTP ${res.status}`);
     }
     const saved = await res.json();
-    setSelectedSymbol(prev => {
-      const isNew = !(prev?.hasServerOverride);
-      if (isNew) setOverrideCount(c => c + 1);
-      return prev?.handle === saved.handle
+    if (!selectedSymbolRef.current?.hasServerOverride) {
+      setOverrideCount(c => c + 1);
+    }
+    setSelectedSymbol(prev =>
+      prev?.handle === saved.handle
         ? { ...prev, data: saved, hasServerOverride: true }
-        : prev;
-    });
+        : prev
+    );
     editStartDataRef.current = null;
     // EXIT_EDIT(원복 없음) → iframe overlay 클리어 + editMode 종료
     // SYMBOL_SAVED → iframe이 저장된 값으로 시각적 transform 적용
