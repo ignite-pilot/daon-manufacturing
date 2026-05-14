@@ -9,7 +9,9 @@ export interface SimProjectRecord {
   id: number
   name: string
   description: string | null
-  planId: number | null  // 연결된 도면 ID
+  planId: number | null
+  dbProjectId: number | null  // DB simulation_project.id
+  simulationId: number        // 프로젝트 생성 시 자동 생성된 시뮬레이션 ID
   createdAt: string
 }
 
@@ -90,13 +92,31 @@ class SimStoreImpl {
   private now() { return new Date().toISOString() }
 
   // ── Projects ─────────────────────────────────────────────────────
-  createProject(name: string, description?: string, planId?: number): SimProjectRecord {
+  createProject(name: string, description?: string, planId?: number, dbProjectId?: number): SimProjectRecord {
+    const simId = this.nextId('sim')
+    this.simulations.push({ id: simId, frameId: 0, createdAt: this.now() })
     const rec: SimProjectRecord = {
       id: this.nextId('project'), name, description: description ?? null,
-      planId: planId ?? null, createdAt: this.now(),
+      planId: planId ?? null, dbProjectId: dbProjectId ?? null,
+      simulationId: simId, createdAt: this.now(),
     }
     this.projects.push(rec)
     return rec
+  }
+
+  /** DB simulation_project.id 기준으로 런타임 SimProject 를 가져오거나 생성 */
+  getOrCreateByDbProject(dbProjectId: number, name: string, planId?: number): SimProjectRecord {
+    const existing = this.projects.find(p => p.dbProjectId === dbProjectId)
+    if (existing) {
+      // 구버전 레코드에 simulationId 가 없을 경우 보정
+      if (!existing.simulationId) {
+        const simId = this.nextId('sim')
+        this.simulations.push({ id: simId, frameId: existing.id, createdAt: this.now() })
+        existing.simulationId = simId
+      }
+      return existing
+    }
+    return this.createProject(name, undefined, planId, dbProjectId)
   }
 
   getProjectByPlanId(planId: number): SimProjectRecord | undefined {

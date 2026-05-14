@@ -22,13 +22,8 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     }
     const planName = rows[0].name
 
-    // 도면에 연결된 프로젝트 가져오거나 생성
     const project = SimStore.getOrCreateProjectByPlan(id, planName)
-
-    // 해당 프로젝트의 프레임 목록
-    const frames = SimStore.getFramesByProject(project.id)
-
-    return NextResponse.json({ project, frames })
+    return NextResponse.json({ project, simId: project.simulationId })
   } catch (e) {
     console.error('[GET /api/simulation/by-plan]', e)
     return NextResponse.json(

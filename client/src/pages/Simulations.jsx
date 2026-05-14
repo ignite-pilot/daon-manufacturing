@@ -1,84 +1,22 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../lib/api'
 
-// ── 도면 드롭다운 ──────────────────────────────────────────────────────
-function PlanDropdown({ plans, selectedPlan, onSelect }) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDown(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
-  function fmtDate(iso) {
-    if (!iso) return ''
-    return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
-  }
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-block', minWidth: 260 }}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%', padding: '6px 10px', border: '1px solid #d1d5db',
-          borderRadius: 6, background: '#fff', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 8, textAlign: 'left',
-        }}
-      >
-        {selectedPlan ? (
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <span style={{ fontWeight: 600, fontSize: 13, color: '#1f2937' }}>{selectedPlan.name}</span>
-            <span style={{ fontSize: 11, color: '#6b7280' }}>v{selectedPlan.version} · {fmtDate(selectedPlan.updated_at)}</span>
-          </span>
-        ) : (
-          <span style={{ fontSize: 13, color: '#9ca3af' }}>도면을 선택하세요</span>
-        )}
-        <span style={{ fontSize: 10, color: '#9ca3af', flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
-      </button>
-
-      {open && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, zIndex: 100,
-          minWidth: '100%', background: '#fff', border: '1px solid #d1d5db',
-          borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-          marginTop: 2, maxHeight: 280, overflowY: 'auto',
-        }}>
-          {plans.length === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 13, color: '#9ca3af' }}>도면 없음</div>
-          )}
-          {plans.map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => { onSelect(p); setOpen(false) }}
-              style={{
-                display: 'block', width: '100%', padding: '8px 12px',
-                background: selectedPlan?.id === p.id ? '#eff6ff' : 'transparent',
-                border: 'none', cursor: 'pointer', textAlign: 'left',
-                borderBottom: '1px solid #f3f4f6',
-              }}
-              onMouseEnter={e => { if (selectedPlan?.id !== p.id) e.currentTarget.style.background = '#f9fafb' }}
-              onMouseLeave={e => { e.currentTarget.style.background = selectedPlan?.id === p.id ? '#eff6ff' : 'transparent' }}
-            >
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#1f2937' }}>{p.name}</div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                v{p.version} · {fmtDate(p.updated_at)}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+// ── 유틸 ─────────────────────────────────────────────────────────────
+function fmtDate(iso) {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
+function formatTime(ms) {
+  if (!ms) return '0:00.00'
+  const totalSec = Math.floor(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  const cs = Math.floor((ms % 1000) / 10)
+  return `${min}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
+}
+
+// ── 상수 ─────────────────────────────────────────────────────────────
 const TYPE_LABEL = {
   SOURCE:   '소스 (Source)',
   DRAIN:    '드레인 (Drain)',
@@ -95,32 +33,217 @@ const TYPE_COLOR = {
   STATION:  'bg-purple-100 text-purple-800',
 }
 
-function formatTime(ms) {
-  if (!ms) return '0:00.00'
-  const totalSec = Math.floor(ms / 1000)
-  const min = Math.floor(totalSec / 60)
-  const sec = totalSec % 60
-  const cs = Math.floor((ms % 1000) / 10)
-  return `${min}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
+// ── 프로젝트 생성/수정 모달 ───────────────────────────────────────────
+function ProjectFormModal({ title, initial, plans, confirmLabel, onConfirm, onCancel }) {
+  const [form, setForm] = useState({
+    name:        initial?.name        ?? '',
+    description: initial?.description ?? '',
+    plan_id:     initial?.plan_id     ? String(initial.plan_id) : '',
+  })
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    onConfirm({
+      name:        form.name.trim(),
+      description: form.description.trim() || null,
+      plan_id:     form.plan_id ? Number(form.plan_id) : null,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md space-y-4">
+        <h3 className="font-semibold text-gray-800 text-lg">{title}</h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-600">프로젝트명 <span className="text-red-500">*</span></span>
+            <input
+              className="border rounded px-3 py-1.5 text-sm"
+              value={form.name}
+              onChange={e => set('name', e.target.value)}
+              placeholder="프로젝트 이름"
+              autoFocus
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-600">연결 도면</span>
+            <select
+              className="border rounded px-3 py-1.5 text-sm"
+              value={form.plan_id}
+              onChange={e => set('plan_id', e.target.value)}
+            >
+              <option value="">도면 없음</option>
+              {plans.map(p => (
+                <option key={p.id} value={p.id}>{p.name} (v{p.version})</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-600">설명</span>
+            <textarea
+              className="border rounded px-3 py-1.5 text-sm resize-none"
+              rows={3}
+              value={form.description}
+              onChange={e => set('description', e.target.value)}
+              placeholder="프로젝트 설명 (선택)"
+            />
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onCancel}
+              className="px-4 py-2 text-sm border rounded hover:bg-gray-50">취소</button>
+            <button type="submit"
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+              {confirmLabel}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
-function fmt2(n) {
-  return n !== null && n !== undefined ? Number(n).toFixed(2) : null
-}
-
-// ── 메인 페이지 ───────────────────────────────────────────────────────
-export default function SimulationsPage() {
-  // ── 도면/프레임 상태 ──────────────────────────────────────────────
+// ── 프로젝트 목록 화면 ────────────────────────────────────────────────
+function ProjectListView({ onEnter }) {
+  const [projects, setProjects] = useState([])
   const [plans, setPlans] = useState([])
-  const [selectedPlan, setSelectedPlan] = useState(null)
-  const [selectedProject, setSelectedProject] = useState(null)
-  const [frames, setFrames] = useState([])
-  const [selectedFrame, setSelectedFrame] = useState(null)
-  const [currentSimId, setCurrentSimId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [showCreate, setShowCreate] = useState(false)
+  const [editingProject, setEditingProject] = useState(null)
 
-  // ── 공간 심볼 상태 ────────────────────────────────────────────────
-  const [planSymbols, setPlanSymbols] = useState([])
-  const [planSymbolsLoading, setPlanSymbolsLoading] = useState(false)
+  useEffect(() => {
+    Promise.all([
+      api('/api/simulation/projects').catch(() => []),
+      api('/api/plan?pageSize=100').then(d => d?.items ?? []).catch(() => []),
+    ]).then(([projs, plns]) => {
+      setProjects(Array.isArray(projs) ? projs : [])
+      setPlans(Array.isArray(plns) ? plns : [])
+    }).finally(() => setLoading(false))
+  }, [])
+
+  const handleCreate = async (data) => {
+    const created = await api('/api/simulation/projects', { method: 'POST', body: data })
+    setProjects(prev => [created, ...prev])
+    setShowCreate(false)
+  }
+
+  const handleEdit = async (data) => {
+    const updated = await api(`/api/simulation/projects/${editingProject.id}`, { method: 'PUT', body: data })
+    setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))
+    setEditingProject(null)
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('프로젝트를 삭제하시겠습니까?')) return
+    await api(`/api/simulation/projects/${id}`, { method: 'DELETE' })
+    setProjects(prev => prev.filter(p => p.id !== id))
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-800">시뮬레이션 관리</h1>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
+        >+ 새 프로젝트</button>
+      </div>
+
+      <section className="bg-white border rounded-lg overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-sm text-gray-400">불러오는 중...</div>
+        ) : projects.length === 0 ? (
+          <div style={{ padding: '80px 0', textAlign: 'center', fontSize: 14, color: '#9ca3af' }}>
+            등록된 시뮬레이션 프로젝트가 없습니다. 새 프로젝트를 생성하세요.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-left text-gray-600">
+                  <th className="border-b px-4 py-3 font-medium">프로젝트명</th>
+                  <th className="border-b px-4 py-3 font-medium whitespace-nowrap">연결 도면</th>
+                  <th className="border-b px-4 py-3 font-medium">설명</th>
+                  <th className="border-b px-4 py-3 font-medium whitespace-nowrap">생성자</th>
+                  <th className="border-b px-4 py-3 font-medium whitespace-nowrap">생성일</th>
+                  <th className="border-b px-4 py-3 font-medium whitespace-nowrap">관리</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map(p => (
+                  <tr key={p.id} className="hover:bg-gray-50 border-b last:border-b-0">
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => onEnter(p)}
+                        style={{ fontWeight: 600, color: '#1d4ed8', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'none' }}
+                        onMouseEnter={e => { e.currentTarget.style.textDecoration = 'underline' }}
+                        onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}
+                      >
+                        {p.name}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                      {p.plan_name ?? <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
+                      {p.description ?? <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                      {p.created_by ?? <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.created_at)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="inline-flex items-center gap-2">
+                        <button className="btn-table-edit" onClick={() => setEditingProject(p)}>수정</button>
+                        <button className="btn-table-delete" onClick={() => handleDelete(p.id)}>삭제</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {showCreate && (
+        <ProjectFormModal
+          title="새 시뮬레이션 프로젝트"
+          plans={plans}
+          confirmLabel="생성"
+          onConfirm={handleCreate}
+          onCancel={() => setShowCreate(false)}
+        />
+      )}
+      {editingProject && (
+        <ProjectFormModal
+          title="프로젝트 수정"
+          initial={editingProject}
+          plans={plans}
+          confirmLabel="저장"
+          onConfirm={handleEdit}
+          onCancel={() => setEditingProject(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── 컴포넌트 기본 설정값 ──────────────────────────────────────────────
+const COMP_DEFAULTS = {
+  SOURCE:   { processingTime: 1000, recoverTime: 0, maxValue: -1 },
+  DRAIN:    { processingTime: 0 },
+  STATION:  { processingTime: 1000, recoverTime: 0 },
+  BUFFER:   { processingTime: 0, recoverTime: 0, storageCapacity: 10, outputMethod: 'FIFO' },
+  CONVEYOR: { recoverTime: 0, conveyorLength: 1.0, conveyorSpeed: 1.0 },
+}
+
+// ── 시뮬레이션 상세 화면 ──────────────────────────────────────────────
+function SimulationDetailView({ project, onBack }) {
+  const [currentSimId, setCurrentSimId] = useState(null)
+  const [components, setComponents] = useState([])
 
   // ── 시뮬레이션 제어 상태 ─────────────────────────────────────────
   const [status, setStatus] = useState(null)
@@ -130,74 +253,59 @@ export default function SimulationsPage() {
 
   const statusTimer = useRef(null)
 
-  // ── 도면 목록 로드 ───────────────────────────────────────────────
-  useEffect(() => {
-    api('/api/plan?pageSize=100')
-      .then(data => setPlans(Array.isArray(data?.items) ? data.items : []))
+  const loadComponents = (simId) =>
+    api(`/api/simulation/${simId}/components`)
+      .then(data => setComponents(Array.isArray(data) ? data : []))
       .catch(() => {})
-  }, [])
 
-  // ── 도면 선택 시 SimProject + 프레임 + 공간 심볼 로드 ────────────
+  // ── 진입 시 simId 로드 (plan_id 유무와 무관하게 항상 simId 보장) ──
   useEffect(() => {
-    if (!selectedPlan) {
-      setSelectedProject(null)
-      setFrames([])
-      setSelectedFrame(null)
-      setPlanSymbols([])
-      return
-    }
-    api(`/api/simulation/by-plan/${selectedPlan.id}`)
+    api(`/api/simulation/by-project/${project.id}`)
       .then(data => {
-        setSelectedProject(data?.project ?? null)
-        setFrames(Array.isArray(data?.frames) ? data.frames : [])
+        const sid = data?.simId ?? null
+        setCurrentSimId(sid)
+        if (sid) loadComponents(sid)
       })
       .catch(() => {})
-
-    setPlanSymbolsLoading(true)
-    api(`/api/plan/${selectedPlan.id}/symbols/components`)
-      .then(data => setPlanSymbols(Array.isArray(data?.components) ? data.components : []))
-      .catch(() => setPlanSymbols([]))
-      .finally(() => setPlanSymbolsLoading(false))
-  }, [selectedPlan])
-
-  // ── simId 설정 ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedFrame) { setCurrentSimId(null); return }
-    setCurrentSimId(selectedFrame.simulation_id ?? null)
-  }, [selectedFrame])
+  }, [project.id])
 
   // ── 상태 폴링 ────────────────────────────────────────────────────
   useEffect(() => {
-    const poll = () => {
-      api('/api/simulation/control/status').then(setStatus).catch(() => {})
-    }
+    const poll = () => api('/api/simulation/control/status').then(setStatus).catch(() => {})
     poll()
     statusTimer.current = setInterval(poll, 500)
     return () => clearInterval(statusTimer.current)
   }, [])
 
-  // ── 자동종료 시간 상태 동기화 ─────────────────────────────────────
+  // ── 자동종료 시간 동기화 ──────────────────────────────────────────
   useEffect(() => {
     if (!status) return
     const sec = status.autoStopTime === 0 ? '' : String(Math.floor(status.autoStopTime / 1000))
     setAutoStopSec(prev => (prev !== sec ? sec : prev))
   }, [status?.autoStopTime])
 
-  // ── 프레임 생성 ──────────────────────────────────────────────────
-  const handleCreateFrame = async () => {
-    if (!selectedProject) return
-    const name = prompt('프레임 이름:')
-    if (!name) return
-    const f = await api(`/api/simulation/projects/${selectedProject.id}/frames`, {
-      method: 'POST', body: { name },
+  // ── 컴포넌트 추가 ────────────────────────────────────────────────
+  const handleAddComponent = async (type) => {
+    if (!currentSimId) return
+    const seq = components.filter(c => c.type === type).length + 1
+    const name = `${TYPE_LABEL[type].split(' ')[0]} ${seq}`
+    await api(`/api/simulation/${currentSimId}/components`, {
+      method: 'POST',
+      body: { name, type, ...COMP_DEFAULTS[type] },
     })
-    setFrames(prev => [...prev, f])
-    setSelectedFrame(f)
+    loadComponents(currentSimId)
+  }
+
+  // ── 컴포넌트 삭제 ────────────────────────────────────────────────
+  const handleDeleteComponent = async (compId) => {
+    if (!confirm('컴포넌트를 삭제하시겠습니까?')) return
+    await api(`/api/simulation/${currentSimId}/components/${compId}`, { method: 'DELETE' })
+    loadComponents(currentSimId)
   }
 
   // ── 시뮬레이션 제어 ──────────────────────────────────────────────
   const handleStart = async () => {
-    if (!currentSimId) return alert('도면과 프레임을 선택해주세요.')
+    if (!currentSimId) return alert('연결된 도면이 없습니다.')
     setLoading(true)
     try {
       await api('/api/simulation/control/start', { method: 'POST', body: { simId: currentSimId } })
@@ -214,9 +322,8 @@ export default function SimulationsPage() {
   const handleAutoStopChange = async (val) => {
     setAutoStopSec(val)
     const sec = val === '' ? 0 : parseInt(val, 10)
-    if (!isNaN(sec) && sec >= 0) {
+    if (!isNaN(sec) && sec >= 0)
       await api('/api/simulation/control/auto-stop', { method: 'POST', body: { seconds: sec } })
-    }
   }
 
   const handleGenerateReport = async () => {
@@ -230,112 +337,89 @@ export default function SimulationsPage() {
   const isRunning = status?.isRunning
   const isPaused  = status?.isPaused
 
-  // ── 렌더 ─────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-gray-800">시뮬레이션 관리</h1>
-
-      {/* ── 도면 / 프레임 선택 ── */}
-      <section className="bg-white border rounded-lg p-4 space-y-3">
-        <h2 className="font-semibold text-gray-700">도면 / 프레임 선택</h2>
-        <div className="flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">도면</label>
-            <PlanDropdown
-              plans={plans}
-              selectedPlan={selectedPlan}
-              onSelect={p => { setSelectedPlan(p); setSelectedFrame(null) }}
-            />
-          </div>
-
-          {selectedProject && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">프레임</label>
-              <div className="flex gap-2">
-                <select
-                  className="border rounded px-2 py-1 text-sm min-w-[160px]"
-                  value={selectedFrame?.id ?? ''}
-                  onChange={e => {
-                    const f = frames.find(x => x.id === Number(e.target.value))
-                    setSelectedFrame(f ?? null)
-                  }}
-                >
-                  <option value="">선택하세요</option>
-                  {frames.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-                <button
-                  onClick={handleCreateFrame}
-                  className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded border"
-                >+ 새 프레임</button>
-              </div>
-            </div>
-          )}
+      {/* ── 헤더 ── */}
+      <div className="flex items-start gap-3">
+        <button
+          onClick={onBack}
+          className="mt-0.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border rounded hover:bg-gray-50 whitespace-nowrap"
+        >← 목록</button>
+        <div>
+          <h1 className="text-xl font-bold text-gray-800">{project.name}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {project.plan_name ? `연결 도면: ${project.plan_name}` : '연결 도면 없음'}
+            {project.description ? ` · ${project.description}` : ''}
+          </p>
         </div>
-        {currentSimId && (
-          <p className="text-xs text-gray-400">Simulation ID: {currentSimId}</p>
-        )}
-      </section>
+      </div>
 
-      {/* ── 공간 심볼 목록 ── */}
+      {!project.plan_id && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-700">
+          연결된 도면이 없습니다. 프로젝트 수정에서 도면을 연결해 주세요.
+        </div>
+      )}
+
+      {/* ── 컴포넌트 설정 ── */}
       <section className="bg-white border rounded-lg p-4 space-y-3">
         <h2 className="font-semibold text-gray-700">컴포넌트 설정</h2>
 
-        {!selectedPlan ? (
-          <p className="text-sm text-gray-400 py-2">도면을 선택하면 컴포넌트 목록이 표시됩니다.</p>
-        ) : planSymbolsLoading ? (
-          <div className="py-6 text-center space-y-2">
-            <p className="text-sm text-gray-500">불러오는 중...</p>
-            <p className="text-xs text-gray-400">도면 복잡도에 따라 오래 걸릴 수 있습니다.</p>
-          </div>
-        ) : planSymbols.length === 0 ? (
-          <p className="text-sm text-gray-400 py-2">
-            공간 관리에서 STATION, CONVEYOR, BUFFER, SOURCE, DRAIN 으로 분류된 심볼이 없습니다.
-          </p>
+        {/* 추가 버튼 */}
+        <div className="flex flex-wrap gap-2">
+          {['SOURCE', 'DRAIN', 'STATION', 'BUFFER', 'CONVEYOR'].map(type => (
+            <button
+              key={type}
+              onClick={() => handleAddComponent(type)}
+              disabled={!currentSimId || isRunning}
+              className={`px-3 py-1.5 text-xs font-medium rounded border disabled:opacity-40 ${TYPE_COLOR[type]}`}
+              style={{ borderColor: 'transparent' }}
+            >+ {type}</button>
+          ))}
+        </div>
+
+        {/* 컴포넌트 목록 */}
+        {components.length === 0 ? (
+          <p className="text-sm text-gray-400 py-2">추가된 컴포넌트가 없습니다.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  <th className="border px-3 py-2 whitespace-nowrap">컴포넌트 유형</th>
-                  <th className="border px-3 py-2 whitespace-nowrap">범례</th>
-                  <th className="border px-3 py-2 whitespace-nowrap text-right">좌표 (X, Y)</th>
-                  <th className="border px-3 py-2 whitespace-nowrap text-right">크기 (너비 × 높이)</th>
-                  <th className="border px-3 py-2 whitespace-nowrap">작업명</th>
-                  <th className="border px-3 py-2 whitespace-nowrap">기계</th>
+                  <th className="border px-3 py-2 whitespace-nowrap">유형</th>
+                  <th className="border px-3 py-2">이름</th>
+                  <th className="border px-3 py-2">설정</th>
+                  <th className="border px-3 py-2 whitespace-nowrap">관리</th>
                 </tr>
               </thead>
               <tbody>
-                {planSymbols.map((s, i) => {
-                  const cx = fmt2(s.center_x)
-                  const cy = fmt2(s.center_y)
-                  const w  = fmt2(s.width)
-                  const h  = fmt2(s.height)
-                  return (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="border px-3 py-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLOR[s.category] ?? 'bg-gray-100 text-gray-700'}`}>
-                          {TYPE_LABEL[s.category] ?? s.category}
-                        </span>
-                      </td>
-                      <td className="border px-3 py-2 text-gray-700">{s.legend ?? <span className="text-gray-300">-</span>}</td>
-                      <td className="border px-3 py-2 text-right font-mono text-xs text-gray-600">
-                        {cx !== null && cy !== null ? `(${cx}, ${cy})` : <span className="text-gray-300">-</span>}
-                      </td>
-                      <td className="border px-3 py-2 text-right font-mono text-xs text-gray-600">
-                        {w !== null && h !== null ? `${w} × ${h}` : <span className="text-gray-300">-</span>}
-                      </td>
-                      <td className="border px-3 py-2 text-gray-700">{s.work_name ?? <span className="text-gray-300">-</span>}</td>
-                      <td className="border px-3 py-2 text-gray-700">
-                        {s.machines && s.machines.length > 0
-                          ? s.machines.join(', ')
-                          : <span className="text-gray-300">-</span>}
-                      </td>
-                    </tr>
-                  )
-                })}
+                {components.map(c => (
+                  <tr key={c.id} className="hover:bg-gray-50">
+                    <td className="border px-3 py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLOR[c.type] ?? 'bg-gray-100 text-gray-700'}`}>
+                        {c.type}
+                      </span>
+                    </td>
+                    <td className="border px-3 py-2 text-gray-800">{c.name}</td>
+                    <td className="border px-3 py-2 text-xs text-gray-500">
+                      {c.type === 'CONVEYOR'
+                        ? `${c.conveyor_length}m @ ${c.conveyor_speed}m/s`
+                        : c.type === 'BUFFER'
+                          ? `용량 ${c.storage_capacity} / ${c.output_method}`
+                          : c.type === 'SOURCE'
+                            ? `처리 ${c.processing_time}ms · 최대 ${c.max_value === -1 ? '무제한' : c.max_value}`
+                            : `처리 ${c.processing_time}ms`}
+                    </td>
+                    <td className="border px-3 py-2">
+                      <button
+                        className="btn-table-delete"
+                        disabled={isRunning}
+                        onClick={() => handleDeleteComponent(c.id)}
+                      >삭제</button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-            <p className="text-xs text-gray-400 mt-2">{planSymbols.length}개 심볼</p>
           </div>
         )}
       </section>
@@ -344,12 +428,10 @@ export default function SimulationsPage() {
       <section className="bg-white border rounded-lg p-4 space-y-4">
         <h2 className="font-semibold text-gray-700">시뮬레이션 제어</h2>
 
-        {/* 자동종료 */}
         <div className="flex items-center gap-3">
           <label className="text-sm text-gray-600">자동 종료 시간 (초, 0=무제한)</label>
           <input
-            type="number"
-            min="0"
+            type="number" min="0"
             value={autoStopSec}
             onChange={e => handleAutoStopChange(e.target.value)}
             disabled={isRunning}
@@ -358,7 +440,6 @@ export default function SimulationsPage() {
           />
         </div>
 
-        {/* 타이머 */}
         {isRunning && (
           <div className="bg-gray-50 rounded p-3 text-center">
             <p className="text-xs text-gray-500 mb-1">시뮬레이션 진행 시간</p>
@@ -377,51 +458,29 @@ export default function SimulationsPage() {
           </div>
         )}
 
-        {/* 제어 버튼 */}
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={handleStart}
-            disabled={loading || isRunning || !currentSimId}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40"
-          >▶ 시작</button>
-          <button
-            onClick={handlePause}
-            disabled={!isRunning || isPaused}
-            className="px-4 py-2 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded disabled:opacity-40"
-          >⏸ 일시정지</button>
-          <button
-            onClick={handleResume}
-            disabled={!isRunning || !isPaused}
-            className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-40"
-          >▶▶ 재개</button>
-          <button
-            onClick={handleStop}
-            disabled={!isRunning}
-            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-40"
-          >■ 종료</button>
+          <button onClick={handleStart} disabled={loading || isRunning || !currentSimId}
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-40">▶ 시작</button>
+          <button onClick={handlePause} disabled={!isRunning || isPaused}
+            className="px-4 py-2 text-sm bg-yellow-500 hover:bg-yellow-600 text-white rounded disabled:opacity-40">⏸ 일시정지</button>
+          <button onClick={handleResume} disabled={!isRunning || !isPaused}
+            className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-40">▶▶ 재개</button>
+          <button onClick={handleStop} disabled={!isRunning}
+            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-40">■ 종료</button>
         </div>
 
-        {/* 속도 조절 */}
         <div>
           <p className="text-xs text-gray-500 mb-2">배속 조절</p>
           <div className="flex flex-wrap gap-1">
-            {[2, 3, 5, 10].map(n => (
-              <button
-                key={n}
-                onClick={() => handleSetSpeed(n)}
-                disabled={!isRunning}
-                className={`px-3 py-1 text-xs rounded border disabled:opacity-40 ${status?.speedMultiplier === n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'}`}
-              >{n}x</button>
+            {[1, 2, 3, 5, 10].map(n => (
+              <button key={n} onClick={() => handleSetSpeed(n)} disabled={!isRunning}
+                className={`px-3 py-1 text-xs rounded border disabled:opacity-40 ${status?.speedMultiplier === n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'}`}>
+                {n}x
+              </button>
             ))}
-            <button
-              onClick={() => handleSetSpeed(1)}
-              disabled={!isRunning}
-              className={`px-3 py-1 text-xs rounded border disabled:opacity-40 ${status?.speedMultiplier === 1 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'}`}
-            >1x</button>
           </div>
         </div>
 
-        {/* 상태 표시 */}
         {status && (
           <div className="text-xs text-gray-500 flex gap-4">
             <span>상태: <b className={isRunning ? 'text-green-600' : 'text-gray-500'}>{isRunning ? (isPaused ? '일시정지' : '실행 중') : '대기'}</b></span>
@@ -435,11 +494,10 @@ export default function SimulationsPage() {
       <section className="bg-white border rounded-lg p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-gray-700">리포트</h2>
-          <button
-            onClick={handleGenerateReport}
-            disabled={!status?.sessionId}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-800 text-white rounded disabled:opacity-40"
-          >리포트 생성</button>
+          <button onClick={handleGenerateReport} disabled={!status?.sessionId}
+            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-800 text-white rounded disabled:opacity-40">
+            리포트 생성
+          </button>
         </div>
 
         {report && (
@@ -450,7 +508,6 @@ export default function SimulationsPage() {
                 <span className="ml-4">시작: {new Date(report.startTime).toLocaleString()}</span>
               )}
             </div>
-
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
@@ -482,4 +539,20 @@ export default function SimulationsPage() {
       </section>
     </div>
   )
+}
+
+// ── 메인 페이지 ───────────────────────────────────────────────────────
+export default function SimulationsPage() {
+  const [selectedSimProject, setSelectedSimProject] = useState(null)
+
+  if (selectedSimProject) {
+    return (
+      <SimulationDetailView
+        project={selectedSimProject}
+        onBack={() => setSelectedSimProject(null)}
+      />
+    )
+  }
+
+  return <ProjectListView onEnter={setSelectedSimProject} />
 }
