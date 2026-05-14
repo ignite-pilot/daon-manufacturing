@@ -52,6 +52,8 @@ export default function PlanViewer({ planId }) {
   // 범례·주석 목록 (GET /api/plan/:id/symbols 에서 로드)
   const [facilityLegend,  setFacilityLegend]  = useState([]);
   const [annotations,     setAnnotations]     = useState([]);
+  // 심볼 오버라이드 수 (> 0 이면 [도면 초기화] 버튼 표시)
+  const [overrideCount,   setOverrideCount]   = useState(0);
   // iframe 재로드 키 — 재분석 완료 시 증가
   const [viewerKey,       setViewerKey]       = useState(0);
 
@@ -334,11 +336,13 @@ export default function PlanViewer({ planId }) {
       throw new Error(err?.error || `HTTP ${res.status}`);
     }
     const saved = await res.json();
-    setSelectedSymbol(prev =>
-      prev?.handle === saved.handle
+    setSelectedSymbol(prev => {
+      const isNew = !(prev?.hasServerOverride);
+      if (isNew) setOverrideCount(c => c + 1);
+      return prev?.handle === saved.handle
         ? { ...prev, data: saved, hasServerOverride: true }
-        : prev
-    );
+        : prev;
+    });
     editStartDataRef.current = null;
     // EXIT_EDIT(원복 없음) → iframe overlay 클리어 + editMode 종료
     // SYMBOL_SAVED → iframe이 저장된 값으로 시각적 transform 적용
@@ -360,6 +364,7 @@ export default function PlanViewer({ planId }) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err?.error || `HTTP ${res.status}`);
     }
+    setOverrideCount(c => Math.max(0, c - 1));
     setSelectedSymbol(prev =>
       prev?.handle === handle
         ? { ...prev, data: null, hasServerOverride: false }
@@ -368,7 +373,7 @@ export default function PlanViewer({ planId }) {
     sendToIframe({ type: 'SYMBOL_OVERRIDE_DELETED', handle });
   }, [planId, sendToIframe]);
 
-  // ── facilityLegend / annotations 로드 (COMPLETED 전환 시 1회) ───────────
+  // ── facilityLegend / annotations / overrideCount 로드 (COMPLETED 전환 시 1회) ─
   useEffect(() => {
     if (plan?.analysis_status !== 'COMPLETED') return;
     let cancelled = false;
@@ -378,6 +383,7 @@ export default function PlanViewer({ planId }) {
         if (cancelled || !data) return;
         if (Array.isArray(data.facilityLegend) && data.facilityLegend.length > 0) setFacilityLegend(data.facilityLegend);
         if (Array.isArray(data.annotations))    setAnnotations(data.annotations);
+        if (Array.isArray(data.symbols))        setOverrideCount(data.symbols.length);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -415,6 +421,35 @@ export default function PlanViewer({ planId }) {
       setReanalyzing(false);
     }
   }, [plan, planId]);
+
+  // ── 도면 초기화 (모든 오버라이드 일괄 삭제) ──────────────────────────
+  const [resetting, setResetting] = useState(false);
+  const handleResetAll = useCallback(async () => {
+    if (!plan) return;
+    if (!window.confirm(
+      `"${plan.name}" 도면의 모든 편집 내용을 초기화하시겠습니까?\n\n` +
+      `지금까지 변경한 심볼 분류, 위치, 크기 등 모든 수정 내용이 영구적으로 삭제되며\n` +
+      `이 작업은 되돌릴 수 없습니다.`
+    )) return;
+
+    setResetting(true);
+    try {
+      const res = await apiFetch(`/api/plan/${planId}/symbols`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`초기화 실패: ${err?.error || `HTTP ${res.status}`}`);
+        return;
+      }
+      setOverrideCount(0);
+      resetSymbolState();
+      // iframe 재로드하여 초기 SVG 상태로 복원
+      setViewerKey(k => k + 1);
+    } catch (e) {
+      alert(`초기화 오류: ${e.message || '알 수 없는 오류'}`);
+    } finally {
+      setResetting(false);
+    }
+  }, [plan, planId, resetSymbolState]);
 
   const goList    = useCallback(() => navigate('/plan'), [navigate]);
   const openEdit  = useCallback(() => setShowEdit(true), []);
@@ -473,6 +508,17 @@ export default function PlanViewer({ planId }) {
             </button>
           )}
           {reanalyzing && <span className="plan-viewer-meta">재분석 시작 중...</span>}
+          {isCompleted && overrideCount > 0 && (
+            <button
+              type="button"
+              className="btn-outline"
+              style={{ fontSize: '0.8125rem', color: '#dc2626', borderColor: '#dc2626' }}
+              disabled={resetting}
+              onClick={handleResetAll}
+            >
+              {resetting ? '초기화 중...' : '도면 초기화'}
+            </button>
+          )}
           <button type="button" className="btn-outline" style={{ fontSize: '0.8125rem' }} onClick={openEdit}>
             수정
           </button>

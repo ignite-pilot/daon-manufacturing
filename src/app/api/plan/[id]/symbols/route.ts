@@ -212,24 +212,41 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   }
 }
 
-// ── DELETE /api/plan/:id/symbols?handle=XXX ───────────────────────────────────
+// ── DELETE /api/plan/:id/symbols ─────────────────────────────────────────────
+// ?handle=XXX  → 특정 심볼 1개 삭제
+// (handle 없음) → 해당 도면의 모든 오버라이드 일괄 삭제 (도면 초기화)
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
   try {
     const { id } = await params;
     const handle = req.nextUrl.searchParams.get('handle');
-    if (!handle) {
-      return NextResponse.json({ error: 'handle 쿼리 파라미터가 필요합니다.' }, { status: 400 });
+
+    if (handle) {
+      // 단건 삭제
+      const result = await query<{ affectedRows: number }>(
+        `DELETE FROM plan_symbol_overrides WHERE plan_id = ? AND handle = ?`,
+        [id, handle]
+      );
+      const affected = (result as unknown as { affectedRows: number })?.affectedRows ?? 0;
+      if (affected === 0) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true });
     }
 
-    const result = await query<{ affectedRows: number }>(
-      `DELETE FROM plan_symbol_overrides WHERE plan_id = ? AND handle = ?`,
-      [id, handle]
+    // 전체 삭제 (도면 초기화)
+    const planRows = await query<{ id: number }[]>(
+      `SELECT id FROM plan WHERE id = ? AND deleted_yn = 'N'`,
+      [id]
     );
-    const affected = (result as unknown as { affectedRows: number })?.affectedRows ?? 0;
-    if (affected === 0) {
+    if (!Array.isArray(planRows) || !planRows[0]) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    return NextResponse.json({ success: true });
+    const result = await query<{ affectedRows: number }>(
+      `DELETE FROM plan_symbol_overrides WHERE plan_id = ?`,
+      [id]
+    );
+    const deleted = (result as unknown as { affectedRows: number })?.affectedRows ?? 0;
+    return NextResponse.json({ success: true, deleted });
   } catch (e) {
     console.error('[DELETE /api/plan/[id]/symbols]', e);
     return NextResponse.json(
