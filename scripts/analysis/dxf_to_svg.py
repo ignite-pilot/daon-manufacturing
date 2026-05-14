@@ -454,6 +454,7 @@ def compute_thresholds(dxf_bbox):
         "station_min_circ_r":  h    * 0.014,  # min radius for circle-type station
         # Conveyor
         "conveyor_pl_expand":  diag * 0.0003, # polyline bbox overlap expand
+        "conveyor_merge_gap":  diag * 0.010,  # max gap between adjacent conveyor sections to merge
         # Buffer / rack
         "rack_line_min":       diag * 0.0005, # min rack line length
         "rack_line_max":       diag * 0.016,  # max rack line length
@@ -697,29 +698,82 @@ def classify_stations(hatches, polylines, texts, circles,
 
 def classify_conveyors(hatches, polylines, inserts, lines,
                         categorized, cfg, thresholds):
-    """Classify CONVEYOR entities via HATCH pattern + elongation heuristic."""
-    conveyors = []
-    min_ar  = cfg.conveyor_min_aspect
-    pl_exp  = thresholds["conveyor_pl_expand"]
+    """Classify CONVEYOR entities via HATCH pattern + elongation heuristic.
 
-    conv_hatches = [
-        h for h in hatches
-        if h.get("pattern") in cfg.conveyor_patterns
-        and h["layer"] == cfg.conveyor_layer
-    ]
-    for ch in conv_hatches:
-        bb = ch["bbox"]
+    Adjacent hatch sections of the same physical conveyor are merged into one
+    logical group sharing a single primary handle, so that each physical
+    conveyor yields exactly one entry in plan_symbol_overrides.
+    """
+    min_ar    = cfg.conveyor_min_aspect
+    pl_exp    = thresholds["conveyor_pl_expand"]
+    merge_gap = thresholds["conveyor_merge_gap"]
+
+    # Step 1: collect hatch candidates that pass aspect-ratio check
+    valid = []
+    for h in hatches:
+        if not (h.get("pattern") in cfg.conveyor_patterns
+                and h["layer"] == cfg.conveyor_layer):
+            continue
+        bb = h["bbox"]
         w  = bb[2] - bb[0]
         hv = bb[3] - bb[1]
         if w <= 0 or hv <= 0:
             continue
-        ar = max(w / hv, hv / w)
-        if ar < min_ar:
+        if max(w / hv, hv / w) < min_ar:
             continue
+        valid.append(h)
 
-        ch["plantsim_category"] = CAT_CONVEYOR
-        categorized.add(ch["handle"])
+    # Step 2: merge adjacent sections into physical conveyor groups
+    used   = [False] * len(valid)
+    groups = []
 
+    for i, ch in enumerate(valid):
+        if used[i]:
+            continue
+        group  = [ch]
+        used[i] = True
+        grp_bb = list(ch["bbox"])
+        changed = True
+        while changed:
+            changed = False
+            for j, ch2 in enumerate(valid):
+                if used[j]:
+                    continue
+                bb2 = ch2["bbox"]
+                # merge if bboxes are within merge_gap on all axes
+                if (bb2[0] <= grp_bb[2] + merge_gap and
+                        bb2[2] >= grp_bb[0] - merge_gap and
+                        bb2[1] <= grp_bb[3] + merge_gap and
+                        bb2[3] >= grp_bb[1] - merge_gap):
+                    group.append(ch2)
+                    used[j] = True
+                    grp_bb[0] = min(grp_bb[0], bb2[0])
+                    grp_bb[1] = min(grp_bb[1], bb2[1])
+                    grp_bb[2] = max(grp_bb[2], bb2[2])
+                    grp_bb[3] = max(grp_bb[3], bb2[3])
+                    changed = True
+
+        groups.append({
+            "hatches":        group,
+            "bbox":           tuple(grp_bb),
+            "primary_handle": group[0]["handle"],
+        })
+
+    # Step 3: mark entities with category + primary handle, collect conveyors list
+    conveyors = []
+    for g in groups:
+        primary = g["primary_handle"]
+        bb      = g["bbox"]
+        w       = bb[2] - bb[0]
+        hv      = bb[3] - bb[1]
+        ar      = max(w / hv, hv / w) if hv > 0 and w > 0 else min_ar
+
+        for ch in g["hatches"]:
+            ch["plantsim_category"]      = CAT_CONVEYOR
+            ch["plantsim_primary_handle"] = primary
+            categorized.add(ch["handle"])
+
+        # Associate overlapping polylines with this conveyor group
         for pl in polylines:
             if pl["handle"] in categorized:
                 continue
@@ -728,12 +782,13 @@ def classify_conveyors(hatches, polylines, inserts, lines,
             pw = pl["bbox"][2] - pl["bbox"][0]
             ph = pl["bbox"][3] - pl["bbox"][1]
             if pw > 0 and ph > 0 and max(pw / ph, ph / pw) >= min_ar:
-                pl["plantsim_category"] = CAT_CONVEYOR
+                pl["plantsim_category"]      = CAT_CONVEYOR
+                pl["plantsim_primary_handle"] = primary
                 categorized.add(pl["handle"])
 
-        conveyors.append({"bbox": bb, "handle": ch["handle"], "aspect_ratio": ar})
+        conveyors.append({"bbox": bb, "handle": primary, "aspect_ratio": ar})
 
-    print(f"    Conveyors: {len(conveyors)}")
+    print(f"    Conveyors: {len(conveyors)} groups (from {len(valid)} hatches)")
     return conveyors
 
 
@@ -949,7 +1004,9 @@ def entity_to_svg(e, tf, scale, texts_list):
     """Convert one entity to an SVG element string; returns None to skip."""
     etype  = e["type"]
     color  = e["hex_color"]
-    handle = e["handle"]
+    # Use group primary handle when set (conveyor section merging), so all
+    # sections of one physical conveyor share one data-handle in the SVG.
+    handle = e.get("plantsim_primary_handle") or e["handle"]
     cat    = e.get("plantsim_category") or ""
     fac    = e.get("facility") or ""
     cat_a  = f' data-plantsim-category="{cat}"' if cat else ' data-plantsim-category=""'
