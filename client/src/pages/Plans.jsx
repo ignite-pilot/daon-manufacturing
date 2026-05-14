@@ -134,7 +134,7 @@ export function PlanList({ refreshKey, patchedPlan }) {
             <Th className="hide-on-mobile" style={{ width: '7rem' }}>상태</Th>
             <Th className="hide-on-mobile" style={{ width: '8rem' }}>수정일자</Th>
             <Th className="hide-on-mobile" style={{ width: '10rem' }}>수정자</Th>
-            <Th style={{ width: '8rem' }}>기능</Th>
+            <Th style={{ width: '10rem' }}>기능</Th>
           </TableHeader>
           <tbody>
             {items.length === 0 ? (

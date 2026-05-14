@@ -400,9 +400,10 @@ a:hover { text-decoration: underline; }
   border-color: #B8C2CC;
   text-decoration: none;
 }
-/* 테이블 기능 열 수정 링크: 테이블 td a 밑줄 스타일 적용 제외 */
+/* 테이블 기능 열 수정 링크: a[href] 규칙 색상·밑줄 덮어쓰기 */
 .table-wrap-bnk .btn-table-edit,
 .table-wrap-bnk .btn-table-edit:hover {
+  color: #333 !important;
   text-decoration: none !important;
 }
 .btn-table-delete {

@@ -119,7 +119,7 @@ export function Th({ children, className = '', ...rest }) {
 /** 기능 열: 수정(연한 파란), 삭제(연한 빨강) 버튼 */
 export function ActionCell({ editTo, onDelete, deleteLabel = '삭제' }) {
   return (
-    <td>
+    <td className="py-2 px-3">
       <div className="inline-flex items-center gap-2">
         {editTo != null && (
           <Link to={editTo} className="btn-table-edit">
