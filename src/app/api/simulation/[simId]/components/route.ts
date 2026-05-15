@@ -19,6 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { simId: stri
     body.id || randomUUID(),
     name, type,
     {
+      symbolHandle:    body.symbolHandle    ?? null,
       processingTime:  body.processingTime,
       recoverTime:     body.recoverTime,
       maxValue:        body.maxValue,

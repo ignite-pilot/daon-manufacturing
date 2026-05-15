@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../lib/api'
+import LayerPopup from '../components/LayerPopup'
 
 // ── 유틸 ─────────────────────────────────────────────────────────────
 function fmtDate(iso) {
@@ -231,6 +232,161 @@ function ProjectListView({ onEnter }) {
   )
 }
 
+// ── 심볼 선택 팝업 ───────────────────────────────────────────────────
+function SymbolPickerModal({ type, symbols, usedHandles, loading, onSelect, onCancel }) {
+  const [keyword, setKeyword] = useState('')
+  const [hoveredHandle, setHoveredHandle] = useState(null)
+  const q = keyword.trim().toLowerCase()
+
+  const allOfType = symbols.filter(s => s.category === type)
+  const filtered = allOfType.filter(s => {
+    if (!q) return true
+    return (
+      (s.legend       ?? '').toLowerCase().includes(q) ||
+      (s.handle       ?? '').toLowerCase().includes(q) ||
+      (s.annotation   ?? '').toLowerCase().includes(q) ||
+      (s.work_name    ?? '').toLowerCase().includes(q) ||
+      (s.description  ?? '').toLowerCase().includes(q)
+    )
+  })
+
+  const fmtPos  = s => (s.center_x != null && s.center_y != null)
+    ? `(${Number(s.center_x).toFixed(1)}, ${Number(s.center_y).toFixed(1)})` : '-'
+  const fmtSize = s => (s.width != null && s.height != null)
+    ? `${Number(s.width).toFixed(1)} × ${Number(s.height).toFixed(1)}` : '-'
+
+  const thStyle = {
+    position: 'sticky', top: 0, background: '#f8fafc',
+    borderBottom: '1px solid #e2e8f0', padding: '8px 10px',
+    fontSize: '0.75rem', fontWeight: 600, color: '#64748b',
+    whiteSpace: 'nowrap', textAlign: 'left', zIndex: 1,
+  }
+
+  return (
+    <LayerPopup
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLOR[type]}`}>{type}</span>
+          심볼 선택
+        </span>
+      }
+      onClose={onCancel}
+      maxWidth={980}
+    >
+      {/* 검색 */}
+      {!loading && allOfType.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <input
+            type="text"
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            placeholder="범례, 핸들, 주석, 작업, 설명 검색…"
+            autoFocus
+            style={{
+              width: '100%', padding: '8px 12px', fontSize: '0.875rem',
+              border: '1px solid #e2e8f0', borderRadius: 6, outline: 'none',
+              boxSizing: 'border-box',
+            }}
+            onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 2px rgba(37,99,235,0.15)' }}
+            onBlur={e  => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+          />
+        </div>
+      )}
+
+      {/* 본문 */}
+      {loading ? (
+        <p style={{ padding: '40px 0', textAlign: 'center', fontSize: 14, color: '#9ca3af' }}>
+          심볼 목록을 불러오는 중...
+        </p>
+      ) : allOfType.length === 0 ? (
+        <p style={{ padding: '40px 0', textAlign: 'center', fontSize: 14, color: '#9ca3af' }}>
+          연결된 도면에 <b>{type}</b> 분류 심볼이 없습니다.
+        </p>
+      ) : (
+        <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+          <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+            <thead>
+              <tr>
+                <th style={{ ...thStyle, width: 110 }}>범례</th>
+                <th style={{ ...thStyle, width: 88 }}>핸들</th>
+                <th style={{ ...thStyle, width: 110 }}>주석</th>
+                <th style={{ ...thStyle, width: 110 }}>작업</th>
+                <th style={{ ...thStyle, width: 130 }}>위치 (X, Y)</th>
+                <th style={{ ...thStyle, width: 120 }}>크기 (너비×높이)</th>
+                <th style={{ ...thStyle }}>설명</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#9ca3af', fontSize: '0.8125rem' }}>
+                    검색 결과가 없습니다.
+                  </td>
+                </tr>
+              ) : filtered.map(sym => {
+                const used    = usedHandles.has(sym.handle)
+                const hovered = !used && hoveredHandle === sym.handle
+                const rowStyle = {
+                  cursor: used ? 'not-allowed' : 'pointer',
+                  opacity: used ? 0.5 : 1,
+                  background: used ? '#f8fafc' : hovered ? '#eff6ff' : '#fff',
+                  borderBottom: '1px solid #f1f5f9',
+                  transition: 'background 0.12s',
+                }
+                const tdStyle = { padding: '7px 10px', verticalAlign: 'middle' }
+                return (
+                  <tr
+                    key={sym.handle}
+                    style={rowStyle}
+                    onMouseEnter={() => !used && setHoveredHandle(sym.handle)}
+                    onMouseLeave={() => setHoveredHandle(null)}
+                    onClick={() => !used && onSelect(sym)}
+                  >
+                    <td style={{ ...tdStyle, fontWeight: sym.legend ? 500 : 400, color: sym.legend ? '#1e293b' : '#94a3b8' }}>
+                      {sym.legend ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569' }}>
+                      {sym.handle}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#475569' }}>
+                      {sym.annotation ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#475569' }}>
+                      {sym.work_name ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap' }}>
+                      {fmtPos(sym)}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap' }}>
+                      {fmtSize(sym)}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#64748b', maxWidth: 220, wordBreak: 'break-word' }}>
+                      {used
+                        ? <span style={{ fontSize: '0.7rem', background: '#f1f5f9', color: '#94a3b8', borderRadius: 4, padding: '1px 7px' }}>추가됨</span>
+                        : (sym.description ?? <span style={{ color: '#cbd5e1' }}>-</span>)
+                      }
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 하단 */}
+      <div className="flex items-center justify-between gap-2">
+        {!loading && (
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+            {filtered.length} / {allOfType.length}개
+          </span>
+        )}
+        <button type="button" onClick={onCancel} className="btn-outline">취소</button>
+      </div>
+    </LayerPopup>
+  )
+}
+
 // ── 컴포넌트 기본 설정값 ──────────────────────────────────────────────
 const COMP_DEFAULTS = {
   SOURCE:   { processingTime: 1000, recoverTime: 0, maxValue: -1 },
@@ -244,6 +400,7 @@ const COMP_DEFAULTS = {
 function SimulationDetailView({ project, onBack }) {
   const [currentSimId, setCurrentSimId] = useState(null)
   const [components, setComponents] = useState([])
+  const [symbolPicker, setSymbolPicker] = useState({ open: false, type: null, symbols: [], loading: false })
 
   // ── 시뮬레이션 제어 상태 ─────────────────────────────────────────
   const [status, setStatus] = useState(null)
@@ -284,15 +441,30 @@ function SimulationDetailView({ project, onBack }) {
     setAutoStopSec(prev => (prev !== sec ? sec : prev))
   }, [status?.autoStopTime])
 
-  // ── 컴포넌트 추가 ────────────────────────────────────────────────
+  // ── 심볼 핸들 → 이미 사용 중인 목록 ──────────────────────────────
+  const usedHandles = new Set(components.map(c => c.symbol_handle).filter(Boolean))
+
+  // ── 컴포넌트 추가 (심볼 선택 모달 열기) ──────────────────────────
   const handleAddComponent = async (type) => {
+    if (!currentSimId || !project.plan_id) return
+    setSymbolPicker({ open: true, type, symbols: [], loading: true })
+    try {
+      const data = await api(`/api/plan/${project.plan_id}/symbols/components`)
+      setSymbolPicker({ open: true, type, symbols: data?.components ?? [], loading: false })
+    } catch {
+      setSymbolPicker({ open: false, type: null, symbols: [], loading: false })
+    }
+  }
+
+  // ── 심볼 선택 확정 ───────────────────────────────────────────────
+  const handleSelectSymbol = async (symbol) => {
     if (!currentSimId) return
-    const seq = components.filter(c => c.type === type).length + 1
-    const name = `${TYPE_LABEL[type].split(' ')[0]} ${seq}`
+    const name = symbol.legend ?? symbol.handle
     await api(`/api/simulation/${currentSimId}/components`, {
       method: 'POST',
-      body: { name, type, ...COMP_DEFAULTS[type] },
+      body: { name, type: symbol.category, symbolHandle: symbol.handle, ...COMP_DEFAULTS[symbol.category] },
     })
+    setSymbolPicker({ open: false, type: null, symbols: [], loading: false })
     loadComponents(currentSimId)
   }
 
@@ -370,7 +542,7 @@ function SimulationDetailView({ project, onBack }) {
             <button
               key={type}
               onClick={() => handleAddComponent(type)}
-              disabled={!currentSimId || isRunning}
+              disabled={!currentSimId || !project.plan_id || isRunning}
               className={`px-3 py-1.5 text-xs font-medium rounded border disabled:opacity-40 ${TYPE_COLOR[type]}`}
               style={{ borderColor: 'transparent' }}
             >+ {type}</button>
@@ -489,6 +661,18 @@ function SimulationDetailView({ project, onBack }) {
           </div>
         )}
       </section>
+
+      {/* ── 심볼 선택 모달 ── */}
+      {symbolPicker.open && (
+        <SymbolPickerModal
+          type={symbolPicker.type}
+          symbols={symbolPicker.symbols}
+          usedHandles={usedHandles}
+          loading={symbolPicker.loading}
+          onSelect={handleSelectSymbol}
+          onCancel={() => setSymbolPicker({ open: false, type: null, symbols: [], loading: false })}
+        />
+      )}
 
       {/* ── 리포트 ── */}
       <section className="bg-white border rounded-lg p-4 space-y-3">

@@ -35,6 +35,7 @@ export interface SimComponentRecord {
   simId: number
   name: string
   type: string
+  symbol_handle: string | null
   processing_time: number
   recover_time: number
   max_value: number
@@ -220,6 +221,7 @@ class SimStoreImpl {
     name: string,
     type: string,
     opts: {
+      symbolHandle?: string | null
       processingTime?: number; recoverTime?: number; maxValue?: number
       storageCapacity?: number; outputMethod?: string
       conveyorLength?: number | null; conveyorSpeed?: number | null
@@ -227,6 +229,7 @@ class SimStoreImpl {
   ): SimComponentRecord {
     const rec: SimComponentRecord = {
       id, simId, name, type,
+      symbol_handle:    opts.symbolHandle    ?? null,
       processing_time:  opts.processingTime  ?? 0,
       recover_time:     opts.recoverTime     ?? 0,
       max_value:        opts.maxValue        ?? -1,

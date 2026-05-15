@@ -4,6 +4,7 @@ export interface SymbolBbox {
   width: number
   height: number
   category: string
+  facility: string | null
 }
 
 interface BboxAccum {
@@ -12,6 +13,7 @@ interface BboxAccum {
   maxX: number
   maxY: number
   category: string
+  facility: string | null
 }
 
 function expandAccum(acc: BboxAccum, x: number, y: number): void {
@@ -78,17 +80,21 @@ export function extractSymbolBboxes(
   for (const line of lines) {
     const handleMatch   = /data-handle="([^"]+)"/.exec(line)
     const categoryMatch = /data-plantsim-category="([^"]+)"/.exec(line)
+    const facilityMatch = /data-facility="([^"]+)"/.exec(line)
     if (!handleMatch) continue
 
     const handle   = handleMatch[1]
     const category = categoryMatch ? categoryMatch[1] : 'UNDEFINED'
+    const facility = facilityMatch ? facilityMatch[1] : null
 
     if (filterCategories && !filterCategories.has(category)) continue
 
     let acc = accums.get(handle)
     if (!acc) {
-      acc = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, category }
+      acc = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, category, facility }
       accums.set(handle, acc)
+    } else if (!acc.facility && facility) {
+      acc.facility = facility
     }
 
     // <path d="..." ...>
@@ -128,6 +134,7 @@ export function extractSymbolBboxes(
       width:    Math.round(w * 100) / 100,
       height:   Math.round(h * 100) / 100,
       category: acc.category,
+      facility: acc.facility,
     })
   })
   return result

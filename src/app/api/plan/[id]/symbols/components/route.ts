@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { query } from '@/lib/db';
-import { extractSymbolBboxes } from '@/lib/svg-bbox';
+import { extractSymbolBboxes, SymbolBbox } from '@/lib/svg-bbox';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -21,34 +21,39 @@ const PRIORITY: Record<string, number> = {
 };
 
 interface PlanRow {
-  svg_file_path: string | null;
+  svg_file_path:      string | null;
+  metadata_file_path: string | null;
 }
 
-interface SymbolRow {
-  id: number;
-  handle: string;
-  category: string;
-  legend: string | null;
-  center_x: number | null;
-  center_y: number | null;
-  width: number | null;
-  height: number | null;
-  work_id: number | null;
-  work_name: string | null;
-  machines: string | null;
+interface OverrideRow {
+  id:            number;
+  handle:        string;
+  category:      string;
+  legend:        string | null;
+  description:   string | null;
+  annotation_id: number | null;
+  center_x:      number | null;
+  center_y:      number | null;
+  width:         number | null;
+  height:        number | null;
+  work_id:       number | null;
+  work_name:     string | null;
+  machines:      string | null;
 }
 
 export interface ComponentItem {
-  handle: string;
-  category: string;
-  priority: number;
-  legend: string | null;
-  center_x: number | null;
-  center_y: number | null;
-  width: number | null;
-  height: number | null;
-  work_name: string | null;
-  machines: string[];
+  handle:      string;
+  category:    string;
+  priority:    number;
+  legend:      string | null;
+  annotation:  string | null;
+  description: string | null;
+  center_x:    number | null;
+  center_y:    number | null;
+  width:       number | null;
+  height:      number | null;
+  work_name:   string | null;
+  machines:    string[];
 }
 
 // ── S3/MinIO ──────────────────────────────────────────────────────────────────
@@ -82,7 +87,7 @@ function keyFromUrl(storedUrl: string): string | null {
   }
 }
 
-async function fetchSvgText(storedUrl: string | null | undefined): Promise<string | null> {
+async function fetchStorageText(storedUrl: string | null | undefined): Promise<string | null> {
   if (!storedUrl) return null;
   const key = keyFromUrl(storedUrl);
   if (!key) return null;
@@ -100,102 +105,166 @@ async function fetchSvgText(storedUrl: string | null | undefined): Promise<strin
 
 // ── GET /api/plan/:id/symbols/components ─────────────────────────────────────
 /**
- * 해당 plan 의 STATION/CONVEYOR/BUFFER/SOURCE/DRAIN 심볼 목록을 반환한다.
- * center_x 가 NULL 인 심볼은 SVG 를 파싱해 bbox 를 계산 후 DB 에 저장한다.
+ * SVG 원본(data-plantsim-category) + plan_symbol_overrides 를 병합해
+ * STATION/CONVEYOR/BUFFER/SOURCE/DRAIN 심볼 전체 목록을 반환한다.
+ *
+ * 우선순위: override > SVG 원본
+ *
+ * SVG-only 심볼(override 없음)은 bbox 계산 후 plan_symbol_overrides 에 INSERT IGNORE 하여
+ * 이후 요청에서 재계산을 방지한다.
  */
 export async function GET(_req: NextRequest, { params }: RouteContext) {
   try {
     const { id } = await params;
 
-    // 1. plan 존재 확인
+    // 1. plan 확인 (svg + metadata 경로 모두 조회)
     const planRows = await query<PlanRow[]>(
-      `SELECT svg_file_path FROM plan WHERE id = ? AND deleted_yn = 'N'`,
+      `SELECT svg_file_path, metadata_file_path
+       FROM plan WHERE id = ? AND deleted_yn = 'N'`,
       [id]
     );
     if (!Array.isArray(planRows) || !planRows[0]) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    const { svg_file_path } = planRows[0];
+    const { svg_file_path, metadata_file_path } = planRows[0];
 
-    // 2. 시뮬레이션 카테고리 심볼 + 작업/기계 조회
-    const rows = await query<SymbolRow[]>(
-      `SELECT
-         pso.id,
-         pso.handle,
-         pso.category,
-         pso.legend,
-         pso.center_x,
-         pso.center_y,
-         pso.width,
-         pso.height,
-         pso.work_id,
-         w.name  AS work_name,
-         GROUP_CONCAT(m.name ORDER BY m.name SEPARATOR '|||') AS machines
-       FROM plan_symbol_overrides pso
-       LEFT JOIN work w        ON pso.work_id = w.id AND w.deleted_yn = 'N'
-       LEFT JOIN work_machine wm ON w.id = wm.work_id
-       LEFT JOIN machine m     ON wm.machine_id = m.id AND m.deleted_yn = 'N'
-       WHERE pso.plan_id = ?
-         AND pso.category IN ('STATION','CONVEYOR','BUFFER','SOURCE','DRAIN')
-       GROUP BY pso.id
-       ORDER BY pso.id ASC`,
-      [id]
-    );
+    // 2. DB overrides + SVG + 메타데이터를 병렬 fetch
+    const [overrideRows, svgText, metaText] = await Promise.all([
+      query<OverrideRow[]>(
+        `SELECT
+           pso.id, pso.handle, pso.category, pso.legend,
+           pso.description, pso.annotation_id,
+           pso.center_x, pso.center_y, pso.width, pso.height,
+           pso.work_id,
+           w.name  AS work_name,
+           GROUP_CONCAT(m.name ORDER BY m.name SEPARATOR '|||') AS machines
+         FROM plan_symbol_overrides pso
+         LEFT JOIN work w          ON pso.work_id = w.id AND w.deleted_yn = 'N'
+         LEFT JOIN work_machine wm ON w.id = wm.work_id
+         LEFT JOIN machine m       ON wm.machine_id = m.id AND m.deleted_yn = 'N'
+         WHERE pso.plan_id = ?
+         GROUP BY pso.id`,
+        [id]
+      ),
+      fetchStorageText(svg_file_path),
+      fetchStorageText(metadata_file_path),
+    ]);
 
-    const symbols: SymbolRow[] = Array.isArray(rows) ? rows : [];
+    const overrides: OverrideRow[] = Array.isArray(overrideRows) ? overrideRows : [];
+    const overrideMap = new Map(overrides.map(r => [r.handle, r]));
 
-    // 3. bbox 가 없는 심볼 식별
-    const missingBbox = symbols.filter(s => s.center_x === null);
-
-    if (missingBbox.length > 0 && svg_file_path) {
-      const svgText = await fetchSvgText(svg_file_path);
-      if (svgText) {
-        const bboxMap = extractSymbolBboxes(svgText, SIM_CATEGORIES);
-
-        // 배치 UPDATE (100개씩)
-        const toUpdate = missingBbox
-          .map(s => ({ row: s, bbox: bboxMap.get(s.handle) }))
-          .filter((x): x is { row: SymbolRow; bbox: NonNullable<ReturnType<typeof bboxMap.get>> } =>
-            x.bbox !== undefined
-          );
-
-        for (let i = 0; i < toUpdate.length; i += 100) {
-          const batch = toUpdate.slice(i, i + 100);
-          await Promise.all(
-            batch.map(({ row, bbox }) =>
-              query(
-                `UPDATE plan_symbol_overrides
-                 SET center_x = ?, center_y = ?, width = ?, height = ?
-                 WHERE id = ?`,
-                [bbox.center_x, bbox.center_y, bbox.width, bbox.height, row.id]
-              )
-            )
-          );
-          // 메모리 내 row 도 갱신
-          batch.forEach(({ row, bbox }) => {
-            row.center_x = bbox.center_x;
-            row.center_y = bbox.center_y;
-            row.width    = bbox.width;
-            row.height   = bbox.height;
-          });
+    // 3. 주석(annotation) 맵 구축 — metadata.json annotations 배열에서 id → text
+    const annotationMap = new Map<number, string>();
+    if (metaText) {
+      try {
+        const meta = JSON.parse(metaText) as Record<string, unknown>;
+        const anns = Array.isArray(meta.annotations) ? meta.annotations : [];
+        for (const ann of anns) {
+          if (ann && typeof ann === 'object') {
+            const a = ann as Record<string, unknown>;
+            const annId   = a.id;
+            const annText = a.text ?? a.content ?? a.value;
+            if (annId != null && annText != null) {
+              annotationMap.set(Number(annId), String(annText));
+            }
+          }
         }
+      } catch { /* metadata 파싱 실패 무시 */ }
+    }
+
+    // 4. SVG 파싱 — SIM 카테고리 심볼의 bbox 추출 (원본 카테고리 기준)
+    const svgBboxMap = new Map<string, SymbolBbox>();
+    if (svgText) {
+      const parsed = extractSymbolBboxes(svgText, SIM_CATEGORIES);
+      parsed.forEach((bbox, handle) => svgBboxMap.set(handle, bbox));
+    }
+
+    // 5. 조합 대상 handle 수집
+    //    ① SVG 에서 SIM 카테고리로 분석된 심볼
+    //    ② override 에서 SIM 카테고리로 지정된 심볼
+    const allHandles = new Set<string>([
+      ...svgBboxMap.keys(),
+      ...overrides.filter(r => SIM_CATEGORIES.has(r.category)).map(r => r.handle),
+    ]);
+
+    // 6. override + SVG 병합
+    const components: ComponentItem[] = [];
+
+    for (const handle of allHandles) {
+      const override = overrideMap.get(handle);
+      const svgBbox  = svgBboxMap.get(handle);
+
+      const category = override?.category ?? svgBbox?.category ?? 'UNDEFINED';
+      if (!SIM_CATEGORIES.has(category)) continue; // override 로 SIM 외로 변경된 경우 제외
+
+      // bbox: override 우선, 없으면 SVG 파싱값
+      const center_x = override?.center_x != null ? Number(override.center_x) : (svgBbox?.center_x ?? null);
+      const center_y = override?.center_y != null ? Number(override.center_y) : (svgBbox?.center_y ?? null);
+      const width    = override?.width    != null ? Number(override.width)    : (svgBbox?.width    ?? null);
+      const height   = override?.height   != null ? Number(override.height)   : (svgBbox?.height   ?? null);
+
+      const annotationId = override?.annotation_id ?? null;
+
+      components.push({
+        handle,
+        category,
+        priority:    PRIORITY[category] ?? 999,
+        legend:      override?.legend      ?? svgBbox?.facility ?? null,
+        annotation:  annotationId != null ? (annotationMap.get(annotationId) ?? null) : null,
+        description: override?.description ?? null,
+        center_x,
+        center_y,
+        width,
+        height,
+        work_name: override?.work_name ?? null,
+        machines:  override?.machines  ? override.machines.split('|||') : [],
+      });
+    }
+
+    // 7. SVG-only 심볼 → plan_symbol_overrides 에 INSERT IGNORE (중복 계산 방지)
+    //    이미 override 가 존재하는 handle 은 IGNORE 되므로 기존 값 보존
+    const svgOnlyHandles = [...svgBboxMap.keys()].filter(h => !overrideMap.has(h));
+    if (svgOnlyHandles.length > 0) {
+      const BATCH = 100;
+      for (let i = 0; i < svgOnlyHandles.length; i += BATCH) {
+        const batch = svgOnlyHandles.slice(i, i + BATCH);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const vals: (string | number | null)[] = [];
+        for (const h of batch) {
+          const bbox = svgBboxMap.get(h)!;
+          vals.push(id, h, bbox.category, bbox.center_x, bbox.center_y, bbox.width, bbox.height);
+        }
+        await query(
+          `INSERT IGNORE INTO plan_symbol_overrides
+             (plan_id, handle, category, center_x, center_y, width, height)
+           VALUES ${placeholders}`,
+          vals
+        );
       }
     }
 
-    // 4. 정렬: 중요도 → 범례 → 작업명 → 기계
-    const components: ComponentItem[] = symbols.map(s => ({
-      handle:    s.handle,
-      category:  s.category,
-      priority:  PRIORITY[s.category] ?? 999,
-      legend:    s.legend,
-      center_x:  s.center_x !== null ? Number(s.center_x) : null,
-      center_y:  s.center_y !== null ? Number(s.center_y) : null,
-      width:     s.width    !== null ? Number(s.width)    : null,
-      height:    s.height   !== null ? Number(s.height)   : null,
-      work_name: s.work_name ?? null,
-      machines:  s.machines ? s.machines.split('|||') : [],
-    }));
+    // 8. override 가 있지만 bbox 가 NULL → SVG 파싱값으로 DB 업데이트
+    const toUpdate = components.filter(c => {
+      const ov = overrideMap.get(c.handle);
+      return ov && ov.center_x === null && c.center_x !== null;
+    });
+    if (toUpdate.length > 0) {
+      for (let i = 0; i < toUpdate.length; i += 100) {
+        const batch = toUpdate.slice(i, i + 100);
+        await Promise.all(
+          batch.map(c =>
+            query(
+              `UPDATE plan_symbol_overrides
+               SET center_x = ?, center_y = ?, width = ?, height = ?
+               WHERE plan_id = ? AND handle = ?`,
+              [c.center_x, c.center_y, c.width, c.height, id, c.handle]
+            )
+          )
+        );
+      }
+    }
 
+    // 9. 정렬: 중요도 → 범례 → 작업명 → 기계
     components.sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
       const lA = a.legend ?? '';
@@ -204,9 +273,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
       const wA = a.work_name ?? '';
       const wB = b.work_name ?? '';
       if (wA !== wB) return wA.localeCompare(wB, 'ko');
-      const mA = a.machines.join(',');
-      const mB = b.machines.join(',');
-      return mA.localeCompare(mB, 'ko');
+      return a.machines.join(',').localeCompare(b.machines.join(','), 'ko');
     });
 
     return NextResponse.json({ components });
