@@ -387,6 +387,36 @@ function SymbolPickerModal({ type, symbols, usedHandles, loading, onSelect, onCa
   )
 }
 
+// ── 컴포넌트 이름 수정 모달 ──────────────────────────────────────────
+function NameEditModal({ comp, onSave, onCancel }) {
+  const [name, setName] = useState(comp.name)
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-5 shadow-xl" style={{ width: 340 }}>
+        <h3 className="font-semibold text-gray-800 mb-3">이름 수정</h3>
+        <input
+          className="border rounded px-3 py-1.5 text-sm w-full"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onSave(name); if (e.key === 'Escape') onCancel() }}
+          autoFocus
+        />
+        <div className="flex justify-end gap-2 mt-4">
+          <button className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50" onClick={onCancel}>취소</button>
+          <button
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+            disabled={!name.trim()}
+            onClick={() => onSave(name)}
+          >저장</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const COMP_PAGE_SIZE = 15
+const SIM_TYPES = ['SOURCE', 'DRAIN', 'STATION', 'BUFFER', 'CONVEYOR']
+
 // ── 컴포넌트 기본 설정값 ──────────────────────────────────────────────
 const COMP_DEFAULTS = {
   SOURCE:   { processingTime: 1000, recoverTime: 0, maxValue: -1 },
@@ -401,6 +431,11 @@ function SimulationDetailView({ project, onBack }) {
   const [currentSimId, setCurrentSimId] = useState(null)
   const [components, setComponents] = useState([])
   const [symbolPicker, setSymbolPicker] = useState({ open: false, type: null, symbols: [], loading: false })
+  const [symbolDataMap, setSymbolDataMap] = useState(new Map())
+  const [selectedCompIds, setSelectedCompIds] = useState(new Set())
+  const [activeTypeTab, setActiveTypeTab] = useState(null)
+  const [compPage, setCompPage] = useState(0)
+  const [editingComp, setEditingComp] = useState(null)
 
   // ── 시뮬레이션 제어 상태 ─────────────────────────────────────────
   const [status, setStatus] = useState(null)
@@ -441,6 +476,25 @@ function SimulationDetailView({ project, onBack }) {
     setAutoStopSec(prev => (prev !== sec ? sec : prev))
   }, [status?.autoStopTime])
 
+  // ── 도면 심볼 정보 로드 (plan_id 변경 시) ────────────────────────
+  useEffect(() => {
+    if (!project.plan_id) return
+    api(`/api/plan/${project.plan_id}/symbols/components`)
+      .then(data => {
+        const m = new Map()
+        ;(data?.components ?? []).forEach(s => m.set(s.handle, s))
+        setSymbolDataMap(m)
+      })
+      .catch(() => {})
+  }, [project.plan_id])
+
+  // ── 필터·수 변경 시 페이지 범위 보정 ────────────────────────────
+  useEffect(() => {
+    const filtered = activeTypeTab ? components.filter(c => c.type === activeTypeTab) : components
+    const total = Math.max(1, Math.ceil(filtered.length / COMP_PAGE_SIZE))
+    if (compPage >= total) setCompPage(0)
+  }, [components.length, activeTypeTab])
+
   // ── 심볼 핸들 → 이미 사용 중인 목록 ──────────────────────────────
   const usedHandles = new Set(components.map(c => c.symbol_handle).filter(Boolean))
 
@@ -450,7 +504,14 @@ function SimulationDetailView({ project, onBack }) {
     setSymbolPicker({ open: true, type, symbols: [], loading: true })
     try {
       const data = await api(`/api/plan/${project.plan_id}/symbols/components`)
-      setSymbolPicker({ open: true, type, symbols: data?.components ?? [], loading: false })
+      const symbols = data?.components ?? []
+      // symbolDataMap 최신 데이터로 갱신 (위치·크기 포함)
+      setSymbolDataMap(m => {
+        const next = new Map(m)
+        symbols.forEach(s => next.set(s.handle, s))
+        return next
+      })
+      setSymbolPicker({ open: true, type, symbols, loading: false })
     } catch {
       setSymbolPicker({ open: false, type: null, symbols: [], loading: false })
     }
@@ -459,7 +520,9 @@ function SimulationDetailView({ project, onBack }) {
   // ── 심볼 선택 확정 ───────────────────────────────────────────────
   const handleSelectSymbol = async (symbol) => {
     if (!currentSimId) return
-    const name = symbol.legend ?? symbol.handle
+    const name = `${symbol.category}_${symbol.handle}`
+    // 선택한 심볼 데이터 즉시 반영
+    setSymbolDataMap(m => { const n = new Map(m); n.set(symbol.handle, symbol); return n })
     await api(`/api/simulation/${currentSimId}/components`, {
       method: 'POST',
       body: { name, type: symbol.category, symbolHandle: symbol.handle, ...COMP_DEFAULTS[symbol.category] },
@@ -468,10 +531,34 @@ function SimulationDetailView({ project, onBack }) {
     loadComponents(currentSimId)
   }
 
-  // ── 컴포넌트 삭제 ────────────────────────────────────────────────
-  const handleDeleteComponent = async (compId) => {
-    if (!confirm('컴포넌트를 삭제하시겠습니까?')) return
-    await api(`/api/simulation/${currentSimId}/components/${compId}`, { method: 'DELETE' })
+  // ── 컴포넌트 행 선택 토글 ────────────────────────────────────────
+  const toggleCompSelect = (id) => {
+    setSelectedCompIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next
+    })
+  }
+
+  // ── 선택 컴포넌트 이름 수정 ──────────────────────────────────────
+  const handleEditName = async (compId, newName) => {
+    if (!newName.trim()) return
+    await api(`/api/simulation/${currentSimId}/components/${compId}`, {
+      method: 'PUT',
+      body: { name: newName.trim() },
+    })
+    setEditingComp(null)
+    loadComponents(currentSimId)
+  }
+
+  // ── 선택 컴포넌트 삭제 ───────────────────────────────────────────
+  const handleDeleteSelected = async () => {
+    if (selectedCompIds.size === 0) return
+    if (!confirm(`선택한 ${selectedCompIds.size}개 컴포넌트를 삭제하시겠습니까?`)) return
+    await Promise.all([...selectedCompIds].map(id =>
+      api(`/api/simulation/${currentSimId}/components/${id}`, { method: 'DELETE' })
+    ))
+    setSelectedCompIds(new Set())
     loadComponents(currentSimId)
   }
 
@@ -508,6 +595,30 @@ function SimulationDetailView({ project, onBack }) {
 
   const isRunning = status?.isRunning
   const isPaused  = status?.isPaused
+
+  const handleTabClick = (type) => {
+    setActiveTypeTab(prev => prev === type ? null : type)
+    setCompPage(0)
+    setSelectedCompIds(new Set())
+  }
+
+  const filteredComps  = activeTypeTab ? components.filter(c => c.type === activeTypeTab) : components
+  const compTotalPages = Math.max(1, Math.ceil(filteredComps.length / COMP_PAGE_SIZE))
+  const pagedComps     = filteredComps.slice(compPage * COMP_PAGE_SIZE, (compPage + 1) * COMP_PAGE_SIZE)
+
+  const compThStyle = {
+    background: '#f8fafc', borderBottom: '2px solid #e2e8f0',
+    padding: '7px 10px', fontSize: '0.75rem', fontWeight: 600,
+    color: '#64748b', textAlign: 'left', whiteSpace: 'nowrap',
+  }
+  const compTdStyle = {
+    padding: '7px 10px', verticalAlign: 'middle',
+    borderBottom: '1px solid #f1f5f9', fontSize: '0.8125rem',
+  }
+  const fmtPos  = s => (s?.center_x != null && s?.center_y != null)
+    ? `(${Number(s.center_x).toFixed(1)}, ${Number(s.center_y).toFixed(1)})` : null
+  const fmtSize = s => (s?.width != null && s?.height != null)
+    ? `${Number(s.width).toFixed(1)} × ${Number(s.height).toFixed(1)}` : null
 
   return (
     <div className="space-y-6">
@@ -553,46 +664,169 @@ function SimulationDetailView({ project, onBack }) {
         {components.length === 0 ? (
           <p className="text-sm text-gray-400 py-2">추가된 컴포넌트가 없습니다.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-gray-50 text-left">
-                  <th className="border px-3 py-2 whitespace-nowrap">유형</th>
-                  <th className="border px-3 py-2">이름</th>
-                  <th className="border px-3 py-2">설정</th>
-                  <th className="border px-3 py-2 whitespace-nowrap">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {components.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="border px-3 py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLOR[c.type] ?? 'bg-gray-100 text-gray-700'}`}>
-                        {c.type}
-                      </span>
-                    </td>
-                    <td className="border px-3 py-2 text-gray-800">{c.name}</td>
-                    <td className="border px-3 py-2 text-xs text-gray-500">
-                      {c.type === 'CONVEYOR'
-                        ? `${c.conveyor_length}m @ ${c.conveyor_speed}m/s`
-                        : c.type === 'BUFFER'
-                          ? `용량 ${c.storage_capacity} / ${c.output_method}`
-                          : c.type === 'SOURCE'
-                            ? `처리 ${c.processing_time}ms · 최대 ${c.max_value === -1 ? '무제한' : c.max_value}`
-                            : `처리 ${c.processing_time}ms`}
-                    </td>
-                    <td className="border px-3 py-2">
-                      <button
-                        className="btn-table-delete"
-                        disabled={isRunning}
-                        onClick={() => handleDeleteComponent(c.id)}
-                      >삭제</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* 테이블 + Excel 탭 묶음 */}
+            <div style={{ borderRadius: 6, border: '1px solid #d1d5db', overflow: 'hidden' }}>
+              {/* 테이블 */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', minWidth: 680, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={compThStyle}>이름</th>
+                      <th style={compThStyle}>핸들</th>
+                      <th style={compThStyle}>주석</th>
+                      <th style={compThStyle}>작업</th>
+                      <th style={compThStyle}>위치 (X, Y)</th>
+                      <th style={compThStyle}>크기 (너비×높이)</th>
+                      <th style={{ ...compThStyle, whiteSpace: 'normal' }}>설명</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedComps.map(c => {
+                      const sym = symbolDataMap.get(c.symbol_handle)
+                      const sel = selectedCompIds.has(c.id)
+                      return (
+                        <tr
+                          key={c.id}
+                          onClick={() => toggleCompSelect(c.id)}
+                          style={{ cursor: 'pointer', background: sel ? '#eff6ff' : undefined }}
+                          onMouseEnter={e => { if (!sel) e.currentTarget.style.background = '#f8fafc' }}
+                          onMouseLeave={e => { if (!sel) e.currentTarget.style.background = sel ? '#eff6ff' : '' }}
+                        >
+                          {/* 이름 */}
+                          <td style={{ ...compTdStyle, fontWeight: 500, color: '#1e293b' }}>{c.name}</td>
+                          {/* 핸들 */}
+                          <td style={{ ...compTdStyle, fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569' }}>
+                            {c.symbol_handle ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                          </td>
+                          {/* 주석 */}
+                          <td style={{ ...compTdStyle, color: '#475569' }}>
+                            {sym?.annotation ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                          </td>
+                          {/* 작업 */}
+                          <td style={{ ...compTdStyle, color: '#475569' }}>
+                            {sym?.work_name ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                          </td>
+                          {/* 위치 */}
+                          <td style={{ ...compTdStyle, fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap' }}>
+                            {fmtPos(sym) ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                          </td>
+                          {/* 크기 */}
+                          <td style={{ ...compTdStyle, fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap' }}>
+                            {fmtSize(sym) ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                          </td>
+                          {/* 설명 */}
+                          <td style={{ ...compTdStyle, color: '#64748b', maxWidth: 180, wordBreak: 'break-word' }}>
+                            {sym?.description ?? <span style={{ color: '#cbd5e1' }}>-</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Excel 스타일 시트 탭 */}
+              <div style={{
+                display: 'flex', alignItems: 'flex-end', gap: 2,
+                background: '#dce0e5', borderTop: '1px solid #b0b8c1',
+                padding: '5px 6px 0', overflowX: 'auto',
+              }}>
+                {SIM_TYPES.map(type => {
+                  const count = components.filter(c => c.type === type).length
+                  if (count === 0) return null
+                  const active = activeTypeTab === type
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => handleTabClick(type)}
+                      style={{
+                        flexShrink: 0,
+                        padding: '4px 13px 5px',
+                        fontSize: '0.75rem',
+                        fontWeight: active ? 700 : 400,
+                        background: active ? '#fff' : '#c8cdd3',
+                        border: `1px solid ${active ? '#a0aab4' : '#b0b8c1'}`,
+                        borderBottom: active ? '2px solid #fff' : '1px solid #b0b8c1',
+                        borderRadius: '3px 3px 0 0',
+                        cursor: 'pointer',
+                        color: active ? '#1d4ed8' : '#4b5563',
+                        boxShadow: active ? 'inset 0 2px 0 #2563eb' : 'none',
+                        marginBottom: 0,
+                        transition: 'background 0.1s',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#d8dde2' }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = '#c8cdd3' }}
+                    >
+                      {type}
+                      <span style={{
+                        fontSize: '0.68rem', fontWeight: 600,
+                        background: active ? '#dbeafe' : '#b0b8c1',
+                        color: active ? '#1d4ed8' : '#fff',
+                        borderRadius: 10, padding: '0 5px', lineHeight: '1.4',
+                      }}>{count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 페이지네이션 + 수정/삭제 */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              {compTotalPages > 1 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    onClick={() => setCompPage(p => Math.max(0, p - 1))}
+                    disabled={compPage === 0}
+                    style={{
+                      padding: '2px 9px', border: '1px solid #e2e8f0', borderRadius: 4,
+                      cursor: compPage === 0 ? 'not-allowed' : 'pointer',
+                      opacity: compPage === 0 ? 0.35 : 1, fontSize: '0.8125rem',
+                    }}
+                  >&lt;</button>
+                  <span style={{ fontSize: '0.8125rem', color: '#64748b', minWidth: 52, textAlign: 'center' }}>
+                    {compPage + 1} / {compTotalPages}
+                  </span>
+                  <button
+                    onClick={() => setCompPage(p => Math.min(compTotalPages - 1, p + 1))}
+                    disabled={compPage === compTotalPages - 1}
+                    style={{
+                      padding: '2px 9px', border: '1px solid #e2e8f0', borderRadius: 4,
+                      cursor: compPage === compTotalPages - 1 ? 'not-allowed' : 'pointer',
+                      opacity: compPage === compTotalPages - 1 ? 0.35 : 1, fontSize: '0.8125rem',
+                    }}
+                  >&gt;</button>
+                  <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 2 }}>
+                    {activeTypeTab ? `${filteredComps.length} / 전체 ${components.length}개` : `총 ${components.length}개`}
+                  </span>
+                </div>
+              ) : (
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  {activeTypeTab ? `${filteredComps.length} / 전체 ${components.length}개` : `총 ${components.length}개`}
+                </span>
+              )}
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className="btn-table-edit"
+                  disabled={selectedCompIds.size !== 1 || isRunning}
+                  style={{ opacity: (selectedCompIds.size !== 1 || isRunning) ? 0.35 : 1 }}
+                  onClick={() => {
+                    const [id] = [...selectedCompIds]
+                    const comp = components.find(c => c.id === id)
+                    if (comp) setEditingComp({ id: comp.id, name: comp.name })
+                  }}
+                >수정</button>
+                <button
+                  className="btn-table-delete"
+                  disabled={selectedCompIds.size === 0 || isRunning}
+                  style={{ opacity: (selectedCompIds.size === 0 || isRunning) ? 0.35 : 1 }}
+                  onClick={handleDeleteSelected}
+                >삭제{selectedCompIds.size > 1 ? ` (${selectedCompIds.size})` : ''}</button>
+              </div>
+            </div>
+          </>
         )}
       </section>
 
@@ -671,6 +905,15 @@ function SimulationDetailView({ project, onBack }) {
           loading={symbolPicker.loading}
           onSelect={handleSelectSymbol}
           onCancel={() => setSymbolPicker({ open: false, type: null, symbols: [], loading: false })}
+        />
+      )}
+
+      {/* ── 이름 수정 모달 ── */}
+      {editingComp && (
+        <NameEditModal
+          comp={editingComp}
+          onSave={(name) => handleEditName(editingComp.id, name)}
+          onCancel={() => setEditingComp(null)}
         />
       )}
 
